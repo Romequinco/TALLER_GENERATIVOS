@@ -19,7 +19,6 @@ yfinance>=0.2.60
 # ── Machine learning clásico ─────────────────────────────────────────────────
 scikit-learn>=1.6      # modelo downstream de referencia, métricas, LedoitWolf
 hmmlearn>=0.3.3        # etiquetado de regímenes (HMM gaussiano)
-statsmodels>=0.14      # contrastes estadísticos sobre las series
 
 # ── Aprendizaje profundo ─────────────────────────────────────────────────────
 # Keras 3 con backend PyTorch: es el que usan los notebooks del máster.
@@ -28,8 +27,9 @@ torch>=2.5
 keras>=3.8
 
 # ── Visualización ────────────────────────────────────────────────────────────
+# Solo matplotlib: el estilo y la paleta del proyecto se definen en src/viz.py,
+# de modo que todas las figuras del informe salgan homogéneas.
 matplotlib>=3.9
-seaborn>=0.13
 
 # ── Configuración y utilidades ───────────────────────────────────────────────
 PyYAML>=6.0            # lectura de data/catalog.yaml

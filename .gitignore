@@ -221,9 +221,6 @@ __marimo__/
 # No se versiona: es material ajeno y pesa ~90 MB. El enunciado sí se versiona
 # en docs/enunciado/ porque es la especificación de la entrega.
 docs/material_clase/
-# Junction de compatibilidad hacia docs/material_clase/ (Windows). Es local:
-# quien clone el repo no la necesita, porque el material tampoco se versiona.
-material_clase/
 
 # ── Datos ──
 # Los datos brutos se descargan con notebooks/00_datos_y_features.ipynb.
