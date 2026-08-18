@@ -89,6 +89,32 @@ def rampa_secuencial(n: int) -> list[str]:
     return [mapa(v) for v in np.linspace(0.35, 0.95, max(n, 2))]
 
 
+def rampa_divergente():
+    """Mapa de color para magnitudes con signo, con el cero en el punto medio.
+
+    Devuelve un `Colormap` y no una lista como `rampa_secuencial`, porque su
+    consumidor es `imshow`, que interpola de forma continua.
+
+    Los polos son azul y rojo —frío y cálido se leen como opuestos— y el punto
+    medio es el gris de la rejilla, que se lee como "nada". Un tono en el centro
+    haría que el cero pareciera un valor. Quien la use **debe** fijar límites
+    simétricos: si no, el gris deja de caer en cero y el color miente sobre el
+    signo.
+    """
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list(
+        "divergente", [PALETA[0], REJILLA, PALETA[7]]
+    )
+
+
+def _catalogo():
+    """Catálogo del proyecto. Import diferido para no acoplar `viz` a `config`."""
+    from .config import cargar_catalogo
+
+    return cargar_catalogo()
+
+
 def aplicar_estilo() -> None:
     """Fija el estilo de matplotlib. Se llama una vez por notebook."""
     plt.rcParams.update(
@@ -146,6 +172,111 @@ def guardar(fig, nombre: str) -> None:
 # resultado, no una etiqueta, y componerlo fuera obligaría al notebook a
 # recalcular lo que la función ya tiene delante.
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def panel_mercado(precios: pd.DataFrame, titulo: str | None = None, eje=None):
+    """Todo el universo descargado, en base 100 y escala logarítmica.
+
+    Cómo se lee: cada línea es un activo y el color es su **rol** en el panel, no
+    su identidad. Son quince series y la paleta tiene ocho colores, así que
+    colorear activo a activo obligaría a ciclar tonos; agrupar por rol da cinco
+    grupos, que es además la lectura útil: los sectores se mueven en bloque, la
+    renta fija va por su cuenta y el VIX se dispara donde todo lo demás cae.
+
+    La escala es logarítmica porque los niveles van de 20 a 6.000: en escala
+    lineal el índice aplastaría al resto contra el eje. Y la base 100 hace
+    comparables activos que empiezan en precios muy distintos.
+
+    Qué la invalida: si alguna serie empezara más tarde que las demás, el panel
+    no estaría alineado y el recorte habría fallado. Todas arrancan en el mismo
+    punto por construcción.
+    """
+    from matplotlib.lines import Line2D
+
+    eje = eje or plt.subplots()[1]
+    roles = {a["nombre"]: a["rol"] for a in _catalogo()["universo"]}
+    orden = ["indice", "sector", "riesgo", "renta_fija", "divisa"]
+    tono = {rol: PALETA[i] for i, rol in enumerate(orden)}
+
+    base = precios / precios.iloc[0] * 100
+    for columna in base.columns:
+        rol = roles[columna]
+        # El índice va grueso y por encima: es la serie que gobierna el
+        # etiquetado de regímenes, las demás son contexto.
+        principal = rol == "indice"
+        eje.plot(
+            base.index,
+            base[columna],
+            color=tono[rol],
+            linewidth=1.8 if principal else 0.9,
+            alpha=1.0 if principal else 0.65,
+            zorder=3 if principal else 2,
+        )
+
+    eje.set_yscale("log")
+    eje.set_title(titulo or f"Los {len(base.columns)} activos del panel, base 100", fontsize=10, fontweight="normal")
+    eje.set_ylabel("nivel, base 100 (escala log)")
+    eje.legend(
+        handles=[
+            Line2D([], [], color=tono[r], linewidth=2, label=r.replace("_", " "))
+            for r in orden
+        ],
+        loc="upper left",
+        ncols=5,
+        fontsize=8,
+    )
+    return eje
+
+
+def mapa_canales(canales: pd.DataFrame, titulo: str | None = None, eje=None):
+    """Los 20 canales de X a lo largo del tiempo, en un solo mapa.
+
+    Cómo se lee: una fila por canal, el tiempo en horizontal y el color es el
+    valor tipificado y recortado a ±3 desviaciones. Es la forma de ver de un
+    vistazo la matriz que van a recibir los generadores. Lo que hay que buscar
+    son las **columnas verticales**: momentos en que casi todos los canales se
+    encienden a la vez. Ahí es donde está la señal de régimen, y es también la
+    razón por la que un generador tiene que modelar los canales conjuntamente y
+    no uno a uno.
+
+    La tipificación es **solo para pintar**: iguala escalas que difieren en dos
+    órdenes de magnitud para que un canal no monopolice el color. No se guarda,
+    no alimenta a ningún modelo y no sustituye al escalado del cuaderno 02, que
+    sí se ajusta únicamente con el tramo de entrenamiento.
+
+    Qué la invalida: una franja horizontal de color plano significa un canal
+    constante o casi; una columna en blanco, un hueco en el índice.
+    """
+    eje = eje or plt.subplots()[1]
+    z = ((canales - canales.mean()) / canales.std()).clip(-3, 3)
+
+    imagen = eje.imshow(
+        z.T,
+        aspect="auto",
+        cmap=rampa_divergente(),
+        vmin=-3,
+        vmax=3,
+        interpolation="nearest",
+        extent=[0, len(z), len(z.columns) - 0.5, -0.5],
+    )
+    # El eje temporal se rotula con los años, no con el número de fila.
+    anios = pd.Series(z.index.year)
+    marcas = anios.drop_duplicates(keep="first")
+    paso = max(len(marcas) // 8, 1)
+    eje.set_xticks(marcas.index[::paso], marcas.to_numpy()[::paso])
+
+    eje.set_yticks(range(len(z.columns)), list(z.columns), fontsize=7)
+    eje.set_title(
+        titulo or f"X · {len(z)} sesiones × {len(z.columns)} canales",
+        fontsize=10,
+        fontweight="normal",
+    )
+    eje.grid(False)
+    plt.colorbar(
+        imagen, ax=eje, fraction=0.025, pad=0.01,
+        label="desviaciones típicas (recortado a ±3)",
+    )
+    return eje
 
 
 def supervivencia_colas(retornos: pd.Series, titulo: str | None = None, eje=None):
