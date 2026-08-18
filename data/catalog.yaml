@@ -1,0 +1,172 @@
+##############################################################################
+# Catálogo de datos — Taller B5-T1 · Generación de datos financieros sintéticos
+#
+# Fuente de verdad del proyecto. Todo lo que define QUÉ datos se usan y CÓMO se
+# construyen las matrices X e Y vive aquí, no repartido por los notebooks.
+# Cambiar un parámetro aquí y re-ejecutar `notebooks/00_datos_y_features.ipynb`
+# y `notebooks/02_ventanas_y_splits.ipynb` basta para regenerar todo el dataset.
+##############################################################################
+
+meta:
+  version: "1.0"
+  estado: activo
+  fecha: 2026-08-18
+  proposito: >
+    Panel híbrido de mercado (índice + sectores + indicadores de riesgo) para
+    entrenar generadores de datos sintéticos y evaluar su efecto sobre dos
+    tareas downstream: clasificación de régimen de mercado y regresión de
+    volatilidad realizada, ambas a 21 días vista.
+  criterio_universo: >
+    Todas las series proceden de yfinance y no requieren clave de API, de modo
+    que cualquier integrante puede reconstruir los datos brutos sin configurar
+    credenciales. La fecha de inicio la gobierna el ticker más tardío del
+    universo (los ETF de renta fija TLT/IEF/LQD, con datos desde 2002-07).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Ventana temporal
+# ─────────────────────────────────────────────────────────────────────────────
+periodo:
+  inicio: "2003-01-02"   # alineado con la "pista B" del TFM de regímenes
+  fin: "2026-08-15"
+  calendario: NYSE       # rejilla base; las series se alinean por fecha común
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Universo de activos (yfinance)
+#
+# rol:
+#   indice     -> referencia del mercado, gobierna el etiquetado de regímenes
+#   sector     -> panel transversal, aporta dispersión sectorial
+#   riesgo     -> indicadores de estrés (volatilidad implícita)
+#   renta_fija -> proxies de crédito y de pendiente de curva
+#   divisa     -> contexto macro
+# ─────────────────────────────────────────────────────────────────────────────
+universo:
+  - {ticker: "^GSPC",     nombre: sp500,          rol: indice,     desde: "1927-12-30"}
+
+  - {ticker: "XLB",       nombre: sector_materiales,   rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLE",       nombre: sector_energia,      rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLF",       nombre: sector_financiero,   rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLI",       nombre: sector_industrial,   rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLK",       nombre: sector_tecnologia,   rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLP",       nombre: sector_consumo_def,  rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLU",       nombre: sector_utilities,    rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLV",       nombre: sector_salud,        rol: sector, desde: "1998-12-22"}
+  - {ticker: "XLY",       nombre: sector_consumo_cic,  rol: sector, desde: "1998-12-22"}
+
+  - {ticker: "^VIX",      nombre: vix,            rol: riesgo,     desde: "1990-01-02"}
+
+  - {ticker: "TLT",       nombre: tesoro_20y,     rol: renta_fija, desde: "2002-07-30"}
+  - {ticker: "IEF",       nombre: tesoro_10y,     rol: renta_fija, desde: "2002-07-30"}
+  - {ticker: "LQD",       nombre: credito_ig,     rol: renta_fija, desde: "2002-07-30"}
+
+  - {ticker: "DX-Y.NYB",  nombre: dolar_indice,   rol: divisa,     desde: "1971-01-04"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Canales de entrada (features)
+#
+# Todas las transformaciones son CAUSALES: en el instante t solo usan
+# información de t o anterior. Los z-scores son expanding (media y desviación
+# acumuladas hasta t), nunca calculados sobre la muestra completa.
+# El orden de esta lista fija el orden de columnas de X. No lo reordenes sin
+# regenerar data/processed/.
+# ─────────────────────────────────────────────────────────────────────────────
+canales:
+  # -- Retornos del panel (10) --------------------------------------------
+  - {nombre: ret_sp500,            tipo: log_return,  fuente: sp500}
+  - {nombre: ret_sector_materiales, tipo: log_return, fuente: sector_materiales}
+  - {nombre: ret_sector_energia,   tipo: log_return,  fuente: sector_energia}
+  - {nombre: ret_sector_financiero, tipo: log_return, fuente: sector_financiero}
+  - {nombre: ret_sector_industrial, tipo: log_return, fuente: sector_industrial}
+  - {nombre: ret_sector_tecnologia, tipo: log_return, fuente: sector_tecnologia}
+  - {nombre: ret_sector_consumo_def, tipo: log_return, fuente: sector_consumo_def}
+  - {nombre: ret_sector_utilities, tipo: log_return,  fuente: sector_utilities}
+  - {nombre: ret_sector_salud,     tipo: log_return,  fuente: sector_salud}
+  - {nombre: ret_sector_consumo_cic, tipo: log_return, fuente: sector_consumo_cic}
+
+  # -- Volatilidad y estrés (4) -------------------------------------------
+  - {nombre: vix_nivel_z,          tipo: zscore_causal, fuente: vix, min_periodos: 252}
+  - {nombre: vix_cambio,           tipo: diff,          fuente: vix}
+  - {nombre: vol_realizada_z,      tipo: zscore_causal, fuente: sp500, ventana: 21, min_periodos: 252}
+  - {nombre: drawdown_sp500,       tipo: drawdown,      fuente: sp500}
+
+  # -- Momento (1) ---------------------------------------------------------
+  - {nombre: momento_sp500,        tipo: momentum,      fuente: sp500, ventana_larga: 252, ventana_corta: 21}
+
+  # -- Crédito y curva (2) -------------------------------------------------
+  - {nombre: spread_credito_z,     tipo: zscore_causal, fuente: [credito_ig, tesoro_10y], min_periodos: 252}
+  - {nombre: pendiente_curva_z,    tipo: zscore_causal, fuente: [tesoro_20y, tesoro_10y], min_periodos: 252}
+
+  # -- Estructura transversal (2) -----------------------------------------
+  - {nombre: corr_accion_bono,     tipo: correlacion_movil, fuente: [sp500, tesoro_10y], ventana: 60}
+  - {nombre: dispersion_sectorial, tipo: dispersion_transversal, fuente: sectores}
+
+  # -- Macro (1) -----------------------------------------------------------
+  - {nombre: ret_dolar,            tipo: log_return,    fuente: dolar_indice}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Construcción de ventanas
+#
+# X: ventana de `pasado` días con todos los canales -> (60, 20)
+# Y: se calcula sobre los `horizonte` días SIGUIENTES a la ventana
+#      y_reg -> régimen dominante (clasificación, 3 clases)
+#      y_vol -> volatilidad realizada anualizada (regresión)
+# ─────────────────────────────────────────────────────────────────────────────
+ventanas:
+  pasado: 60        # longitud de X, en días de mercado
+  horizonte: 21     # días futuros sobre los que se define Y (~1 mes natural)
+  paso: 1           # desplazamiento entre ventanas consecutivas
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Particiones
+#
+# El split es TEMPORAL, nunca aleatorio: las ventanas se solapan y un split
+# aleatorio metería ventanas casi idénticas en train y test (fuga masiva).
+# Entre particiones se descarta un `embargo` de días para que ninguna ventana
+# de test comparta observaciones con una de train.
+#   mínimo teórico = pasado + horizonte = 60 + 21 = 81
+#   valor adoptado = 85 (margen sobre el mínimo, ver docs/metodologia/
+#   riesgos_datos_sinteticos.md)
+# ─────────────────────────────────────────────────────────────────────────────
+particiones:
+  metodo: temporal
+  train_hasta: "2018-12-31"   # incluye 2008 y 2011: sin crisis en train no hay nada que aprender
+  val_hasta:   "2021-12-31"   # incluye el COVID como validación
+  # test = el resto (2022 en adelante: mercado bajista de 2022, SVB 2023, 2025)
+  embargo_dias: 85
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Etiquetado de regímenes
+#
+# El HMM se ajusta SOLO con el tramo de entrenamiento. Los estados se ordenan
+# por volatilidad creciente (canonicalización económica): 0 = calma,
+# n_estados-1 = crisis. Criterio heredado del TFM de detección de regímenes.
+# ─────────────────────────────────────────────────────────────────────────────
+regimenes:
+  metodo: hmm_gaussiano
+  n_estados: 3              # 0 = calma, 1 = transición, 2 = crisis
+  covarianza: full
+  n_iteraciones: 1000
+  tolerancia: 1.0e-4
+  semillas: [42, 43, 44, 45, 46]   # se queda el ajuste de mayor log-verosimilitud
+  features_etiquetado:
+    - ret_sp500
+    - vol_realizada_z
+    - drawdown_sp500
+    - spread_credito_z
+    - vix_nivel_z
+  agregacion_horizonte: modal   # régimen dominante en los `horizonte` días futuros
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Escalado
+#
+# El escalador se ajusta SOLO con train y se guarda en data/processed/ para que
+# generadores y modelo downstream compartan exactamente la misma normalización.
+# ─────────────────────────────────────────────────────────────────────────────
+escalado:
+  metodo: standard        # media 0, desviación 1, por canal
+  ajustar_con: train
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Reproducibilidad
+# ─────────────────────────────────────────────────────────────────────────────
+semilla_global: 42

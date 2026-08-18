@@ -1,0 +1,40 @@
+# Taller B5-T1 · Generación de datos financieros sintéticos
+#
+# Probado con Python 3.13.7 en CPU (sin CUDA). Instalación:
+#     pip install -r requirements.txt
+#
+# Nota sobre PyTorch: la rueda por defecto de PyPI ya es la de CPU en Windows.
+# Si en otra máquina se quisiera la de GPU, instalar torch aparte siguiendo
+# https://pytorch.org/get-started/locally/ ANTES de correr este fichero.
+
+# ── Núcleo de datos y cálculo ────────────────────────────────────────────────
+numpy>=2.0
+pandas>=2.2
+scipy>=1.14
+pyarrow>=17.0          # backend de parquet para data/processed/
+
+# ── Descarga de datos de mercado ─────────────────────────────────────────────
+yfinance>=0.2.60
+
+# ── Machine learning clásico ─────────────────────────────────────────────────
+scikit-learn>=1.6      # modelo downstream de referencia, métricas, LedoitWolf
+hmmlearn>=0.3.3        # etiquetado de regímenes (HMM gaussiano)
+statsmodels>=0.14      # contrastes estadísticos sobre las series
+
+# ── Aprendizaje profundo ─────────────────────────────────────────────────────
+# Keras 3 con backend PyTorch: es el que usan los notebooks del máster.
+# El backend se fija por variable de entorno en src/__init__.py.
+torch>=2.5
+keras>=3.8
+
+# ── Visualización ────────────────────────────────────────────────────────────
+matplotlib>=3.9
+seaborn>=0.13
+
+# ── Configuración y utilidades ───────────────────────────────────────────────
+PyYAML>=6.0            # lectura de data/catalog.yaml
+tqdm>=4.66             # barras de progreso en los barridos largos
+
+# ── Entorno de notebooks ─────────────────────────────────────────────────────
+jupyter>=1.1
+ipykernel>=6.29
