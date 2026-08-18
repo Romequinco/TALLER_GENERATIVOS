@@ -144,6 +144,51 @@ def construir_ventanas(
     return Conjunto(X=X, y_reg=y_reg, y_vol=y_vol, fechas=indice[posiciones])
 
 
+def tamano_muestral_efectivo(
+    indice: pd.DatetimeIndex, ventanas: Ventanas
+) -> pd.Series:
+    """Cuántas observaciones **independientes** hay detrás de las ventanas.
+
+    Cómo se lee: ``ventanas_nominales`` es el número de filas del dataset y
+    ``bloques_disjuntos`` el número de tramos que no comparten ni una sola
+    sesión. El cociente es el factor por el que el dataset se está contando a sí
+    mismo: cualquier intervalo de confianza calculado sobre las ventanas
+    nominales es aproximadamente ese factor de veces más estrecho de lo que
+    debería.
+
+    Qué la invalida: hay que pasarle ``canales.index``, **no**
+    ``precios.index``. Las 272 sesiones de arranque que consume el z-score
+    causal no producen ninguna ventana, y contarlas infla el resultado.
+
+    Parameters
+    ----------
+    indice
+        Índice de fechas del panel de canales.
+    ventanas
+        Geometría de las ventanas, de `config.ventanas()`.
+
+    Returns
+    -------
+    pandas.Series
+        Con ``sesiones``, ``ventanas_nominales``, ``bloques_disjuntos`` y
+        ``factor_inflacion``. El recuento nominal es geométrico: cuenta las
+        posiciones posibles, sin descontar aquellas cuyo objetivo es NaN.
+    """
+    bloque = ventanas.pasado + ventanas.horizonte
+    nominales = max(len(indice) - bloque + 1, 0)
+    disjuntos = len(indice) // bloque
+    return pd.Series(
+        {
+            "sesiones": len(indice),
+            "ventanas_nominales": nominales,
+            "bloques_disjuntos": disjuntos,
+            "factor_inflacion": (
+                round(nominales / disjuntos, 1) if disjuntos else float("nan")
+            ),
+        }
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Particiones temporales con embargo
 # ─────────────────────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ from functools import lru_cache
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import yaml
 
 from . import CATALOGO
@@ -109,6 +110,46 @@ def nombres_canales() -> list[str]:
     generadores ya entrenados.
     """
     return [c["nombre"] for c in cargar_catalogo()["canales"]]
+
+
+def parametros_canales() -> dict[str, dict]:
+    """Hiperparámetros declarados de cada canal, indexados por nombre.
+
+    Devuelve la entrada completa del catálogo de cada canal, de modo que
+    `features.construir_canales` pueda leer de aquí las longitudes de ventana en
+    lugar de llevarlas escritas a mano. Es lo que hace cierta la afirmación de
+    que ninguna longitud de ventana vive fuera de `data/catalog.yaml`.
+
+    Returns
+    -------
+    dict
+        ``{nombre_canal: {tipo, fuente, ventana?, min_periodos?, ...}}``. Las
+        claves opcionales solo están presentes en los canales que las declaran.
+    """
+    return {c["nombre"]: dict(c) for c in cargar_catalogo()["canales"]}
+
+
+def familias_canales() -> pd.Series:
+    """Familia de cada canal: ``retorno`` si es un log-retorno, ``derivada`` si no.
+
+    Es una partición binaria del panel, y binaria a propósito: las figuras
+    colorean la familia, nunca el valor del estadístico, que es lo que evita el
+    anti-patrón de una rampa de color sobre veinte categorías. Once canales son
+    retornos y nueve son derivadas.
+
+    Returns
+    -------
+    pandas.Series
+        Indexada por nombre de canal en el orden del catálogo, con valores
+        ``"retorno"`` o ``"derivada"``.
+    """
+    tipos = {n: c["tipo"] for n, c in parametros_canales().items()}
+    return pd.Series(
+        {
+            nombre: ("retorno" if tipos[nombre] == "log_return" else "derivada")
+            for nombre in nombres_canales()
+        }
+    )
 
 
 def n_canales() -> int:

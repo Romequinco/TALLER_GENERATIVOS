@@ -45,15 +45,28 @@ Solo se duplica el barrido de entrenamiento.
 
 ## D3 · Panel híbrido de 20 canales, no 23 tickers en crudo
 
-**Decisión.** `X` combina retornos del índice y de nueve sectores con diez
-features derivadas de estrés (VIX, spread de crédito, pendiente de curva,
-drawdown, correlación acción-bono, dispersión sectorial).
+**Decisión.** `X` combina once canales de retorno —índice, nueve sectores y
+dólar— con nueve features derivadas de estrés (nivel y variación del VIX,
+volatilidad realizada, drawdown, momento, spread de crédito, pendiente de curva,
+correlación acción-bono y dispersión sectorial).
 
 **Por qué.** Los notebooks guiados usan 23 tickers en crudo, lo que da un bloque
 de 1.380 dimensiones donde la GAN densa del ejemplo se atasca visiblemente. Las
-features derivadas concentran la señal de régimen —en nuestro TFM de detección
-de regímenes, `VIX_level_z` alcanza AUC 0.81 y `MOVE_level_z` 0.80— y hacen el
-problema aprendible con menos dimensiones.
+features derivadas concentran la señal de régimen y hacen el problema aprendible
+con menos dimensiones.
+
+**Medido sobre este panel**, no heredado de otro: el notebook 00 calcula el AUC
+univariante de cada canal contra el decil superior de volatilidad futura, sobre
+el tramo de entrenamiento. Seis canales superan 0,70 —`vix_nivel_z` 0,90,
+`vol_realizada_z` y `drawdown_sp500` 0,88, `spread_credito_z` 0,86,
+`dispersion_sectorial` 0,82 y `corr_accion_bono` 0,73— y **son todos derivados**;
+el mejor retorno se queda en 0,55. La banda bootstrap de estos AUC ronda ±0,15,
+así que lo defendible es la separación entre los dos bloques, no el orden entre
+canales vecinos.
+
+Una versión anterior de esta decisión citaba `MOVE_level_z` con AUC 0,80. Esa
+cifra procede del panel del TFM de regímenes y **`MOVE` no está en el universo de
+este taller**, de modo que se retira y se sustituye por la medición de arriba.
 
 **Alternativa descartada.** Solo features derivadas (sin sectores): pierde la
 estructura transversal, que es informativa en las rotaciones sectoriales previas
@@ -176,6 +189,21 @@ un modelo independiente por régimen.
 **Riesgo asumido.** En la clase de crisis quedan pocos cientos de ventanas para
 un bloque de ~1.200 dimensiones. Ambos módulos avisan por consola cuando el
 número de muestras es insuficiente, y `rbig` reduce dimensión con PCA previa.
+
+**Consecuencia que hay que tener presente al juzgar el resultado.** Un modelo por
+régimen no es una gaussiana: el banco de muestras que produce es una **mezcla de
+escala**, porque el régimen es constante dentro de cada ventana y cambia entre
+ventanas. Y una mezcla sí tiene colas gruesas y, bajo el protocolo de
+autocorrelación agrupada, sí tiene agrupamiento de volatilidad. Medido en el
+notebook 00 con el reparto de regímenes que espera D6: curtosis en torno a 8 y
+ACF de |r| en el primer retardo de 0,31, frente a 16,5 y 0,31 reales.
+
+Por eso sería un error enunciar "el generador gaussiano no puede reproducir las
+colas ni el agrupamiento": eso vale para una gaussiana única, que no es lo que
+este repositorio implementa, y el notebook 05 nos refutaría. El estadístico que
+**sí** separa a la mezcla del mercado es la curtosis de los residuos
+estandarizados: 7,3 reales con banda [5,7 – 11,2], frente a 3,4 de la mezcla. Es
+sobre esa fila sobre la que el notebook 00 enuncia su hipótesis falsable.
 
 ---
 

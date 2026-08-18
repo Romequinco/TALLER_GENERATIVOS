@@ -51,10 +51,10 @@ reconstruye los datos brutos con una sola llamada.
 
 - **Universo (15 activos):** S&P 500, los nueve ETF sectoriales SPDR, VIX,
   tesoro a 20 y 10 años, crédito grado de inversión e índice dólar.
-- **Canales (20):** diez de retornos (índice y sectores) y diez derivados
-  —nivel y variación del VIX, volatilidad realizada, drawdown, momento, spread
-  de crédito, pendiente de curva, correlación acción-bono, dispersión sectorial
-  y retorno del dólar.
+- **Canales (20):** once de retornos (índice, nueve sectores y dólar) y nueve
+  derivados —nivel y variación del VIX, volatilidad realizada, drawdown,
+  momento, spread de crédito, pendiente de curva, correlación acción-bono y
+  dispersión sectorial.
 - **Ventana:** `X` de 60 días × 20 canales → `Y` sobre los 21 días siguientes.
 
 Todas las transformaciones son **causales**: en el instante `t` solo usan
@@ -230,7 +230,8 @@ _Pendiente de completar tras ejecutar el barrido._
 | Documentación teórica y metodológica | ✅ |
 | Infraestructura de código (`src/`) | ✅ |
 | Esqueleto de notebooks | ✅ |
-| Descarga de datos y etiquetado de regímenes | 🔜 |
+| Descarga de datos y construcción de canales (notebook 00) | ✅ |
+| Etiquetado de regímenes (notebook 01) | 🔜 |
 | Arquitectura downstream de referencia | 🔜 |
 | Entrenamiento de los siete generadores | 🔜 |
 | Barrido experimental | 🔜 |
