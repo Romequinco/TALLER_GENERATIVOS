@@ -37,8 +37,8 @@ si el beneficio del dato sintético depende de la naturaleza del problema:
 |---|---|---|
 | **Objetivo** | Régimen dominante a 21 días | Volatilidad realizada a 21 días |
 | **Tipo** | Clasificación (3 clases) | Regresión |
-| **Métrica** | F1-macro y recall de crisis | MAE y QLIKE |
-| **Desbalance** | Severo (crisis ≈ 10 %) | No aplica |
+| **Métrica** | F1-macro y recall de crisis | MAE y R² |
+| **Desbalance** | Severo (crisis ≈ 16 %) | No aplica |
 
 Si los sintéticos ayudan en la primera y no en la segunda, el mecanismo es el
 rebalanceo de clases. Si ayudan en ambas, es enriquecimiento general de la
@@ -122,7 +122,7 @@ Las ventanas de 60 días se solapan en 59 observaciones con su vecina. Un split
 aleatorio colocaría ventanas casi idénticas a ambos lados del corte y el modelo
 obtendría métricas excelentes por memorizar. Por eso:
 
-- El split es **temporal**, con un **embargo de 85 sesiones** en cada frontera.
+- El split es **temporal**, con un **embargo de 85 sesiones de mercado** en cada frontera, verificado por conteo de posiciones.
 - Generadores, etiquetado de regímenes y escalado se ajustan **solo con train**.
 - Validación y test son **siempre 100 % reales**.
 
@@ -154,7 +154,7 @@ TALLER_GENERATIVOS/
 │   ├── mezclas.py              rejilla experimental y montaje de datasets mixtos
 │   ├── evaluacion.py           métricas downstream y de calidad sintética
 │   └── viz.py                  estilo y figuras del informe
-├── notebooks/                  00 a 14, numerados y con responsable asignado
+├── notebooks/                  00 a 14, numerados y encadenados
 ├── docs/
 │   ├── INDEX.md                índice de la documentación
 │   ├── DECISIONES.md           decisiones de diseño y su justificación
@@ -187,29 +187,29 @@ notebook del 11 en adelante y trabajar con los generadores ya entrenados. Solo
 si `data/raw/` está vacío hace falta ejecutar el 00 una vez para descargar los
 precios.
 
-### Reparto del trabajo
+### Encadenado de los notebooks
 
 Los notebooks 04 a 10 **no dependen entre sí**: todos leen `data/processed/` y
-escriben en su propio subdirectorio. Los tres integrantes pueden entrenar sus
-generadores en paralelo sin bloquearse.
+escriben en su propio subdirectorio, así que se pueden entrenar en paralelo sin
+bloquearse.
 
-| Notebook | Contenido | Responsable |
+| Notebook | Contenido |
 |---|---|---|
-| `00_datos_y_features` | Descarga y construcción de canales | Oscar |
-| `01_etiquetado_regimenes` | HMM y canonicalización | Oscar |
-| `02_ventanas_y_splits` | Ventanas, split temporal, escalado | Oscar |
-| `03_downstream_baseline` | Arquitectura CNN 1D de referencia | Oscar |
-| `04_gen_ruido` | Generador jitter | Fernando |
-| `05_gen_gaussiano` | Gaussiano multivariante | Fernando |
-| `06_gen_cvae` | VAE condicional | Fernando |
-| `07_gen_cgan` | GAN condicional | Oscar |
-| `08_gen_flow_matching` | Flow matching condicional | Oscar |
-| `09_gen_rbig` | Normalizing flow RBIG | Daniel |
-| `10_gen_difusion` | Difusión DDIM condicional | Daniel |
-| `11_mezclas_datasets` | Rejilla de datasets mixtos | Equipo |
-| `12_barrido_entrenamiento` | Entrenamiento de todas las versiones | Equipo |
-| `13_analisis_resultados` | Figuras y tablas del informe | Equipo |
-| `14_calidad_sinteticos` | Métricas de calidad de los sintéticos | Equipo |
+| `00_datos_y_features` | Descarga y construcción de canales |
+| `01_etiquetado_regimenes` | HMM y canonicalización |
+| `02_ventanas_y_splits` | Ventanas, split temporal, escalado |
+| `03_downstream_baseline` | Arquitectura CNN 1D de referencia |
+| `04_gen_ruido` | Generador jitter |
+| `05_gen_gaussiano` | Gaussiano multivariante |
+| `06_gen_cvae` | VAE condicional |
+| `07_gen_cgan` | GAN condicional |
+| `08_gen_flow_matching` | Flow matching condicional |
+| `09_gen_rbig` | Normalizing flow RBIG |
+| `10_gen_difusion` | Difusión DDIM condicional |
+| `11_mezclas_datasets` | Rejilla de datasets mixtos |
+| `12_barrido_entrenamiento` | Entrenamiento de todas las versiones |
+| `13_analisis_resultados` | Figuras y tablas del informe |
+| `14_calidad_sinteticos` | Métricas de calidad de los sintéticos |
 
 ### Nota sobre el entorno
 

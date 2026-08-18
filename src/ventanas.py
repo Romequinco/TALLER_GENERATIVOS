@@ -198,34 +198,297 @@ def partir(
     conjunto: Conjunto,
     train_hasta: str,
     val_hasta: str,
-    embargo_dias: int,
+    embargo_sesiones: int,
+    ventanas: Ventanas,
 ) -> tuple[Conjunto, Conjunto, Conjunto]:
-    """Divide en train / validación / test por fecha, con embargo entre tramos.
+    """Divide en train / validación / test por fecha, con embargo en sesiones.
 
-    El embargo descarta las ventanas cuyo periodo de observación cruza un corte.
-    Sin él, la última ventana de train usa datos que ya pertenecen a validación,
-    y el modelo ve el futuro por la puerta de atrás.
+    El embargo descarta las `embargo_sesiones` ventanas que siguen a cada corte.
+    Se cuenta en **posiciones del índice de mercado**, no en días naturales: la
+    huella de una ventana son `pasado + horizonte` sesiones, y los festivos no
+    forman parte de ella. Contarlo en días naturales —lo que hacía la versión
+    anterior— da un hueco que depende de dónde caiga el corte en el calendario:
+    85 días naturales son 59 sesiones, 22 menos de las necesarias.
 
     Parameters
     ----------
-    embargo_dias
-        Días naturales a descartar a cada lado de un corte. Debe ser al menos
-        ``pasado + horizonte - 1``; el catálogo lo fija en 80.
+    conjunto
+        Dataset completo de `construir_ventanas`, ordenado por fecha.
+    train_hasta, val_hasta
+        Últimas fechas de train y de validación. El resto es test.
+    embargo_sesiones
+        Ventanas a descartar tras cada corte. Debe ser al menos
+        ``ventanas.solape_maximo``; el catálogo lo fija en 85.
+    ventanas
+        Geometría de las ventanas. Se pide explícitamente para poder validar el
+        embargo contra `solape_maximo`: es la comprobación que habría impedido
+        el fallo original.
+
+    Returns
+    -------
+    tuple of Conjunto
+        Train, validación y test, en orden cronológico.
+
+    Raises
+    ------
+    ValueError
+        Si el embargo es menor que ``ventanas.solape_maximo``, o si un corte
+        deja una partición vacía.
+    """
+    if embargo_sesiones < ventanas.solape_maximo:
+        raise ValueError(
+            f"El embargo es de {embargo_sesiones} sesiones y el minimo que "
+            f"neutraliza el solape es {ventanas.solape_maximo}: con menos, "
+            "alguna sesion queda en dos particiones a la vez."
+        )
+
+    fechas = conjunto.fechas
+    posicion = np.arange(len(fechas))
+    mascaras, desde = [], 0
+    for corte in (train_hasta, val_hasta):
+        elegibles = posicion[(posicion >= desde) & (fechas <= pd.Timestamp(corte))]
+        if not len(elegibles):
+            raise ValueError(f"El corte {corte} deja una particion vacia.")
+        hasta = int(elegibles.max())
+        mascaras.append((posicion >= desde) & (posicion <= hasta))
+        desde = hasta + embargo_sesiones + 1
+    mascaras.append(posicion >= desde)
+
+    return tuple(_filtrar(conjunto, m) for m in mascaras)
+
+
+def partir_por_dias_naturales(
+    conjunto: Conjunto, train_hasta: str, val_hasta: str, embargo_dias: int
+) -> tuple[Conjunto, Conjunto, Conjunto]:
+    """La versión defectuosa de `partir`: cuenta el embargo en días naturales.
+
+    **No la llames desde código nuevo.** Existe por la misma razón por la que el
+    catálogo conserva `features_descartadas`: el notebook 02 reconstruye con ella
+    el split que fallaba y mide la fuga que producía. La comparación *es* el
+    argumento; sin ella habría que creerse la cifra.
+
+    Con la geometría de este proyecto deja 22 sesiones en train y en validación a
+    la vez, y otras 22 entre validación y test.
     """
     fechas = conjunto.fechas
-    corte_train = pd.Timestamp(train_hasta)
-    corte_val = pd.Timestamp(val_hasta)
     margen = pd.Timedelta(days=embargo_dias)
+    corte_train, corte_val = pd.Timestamp(train_hasta), pd.Timestamp(val_hasta)
 
-    mascara_train = fechas <= corte_train
-    mascara_val = (fechas > corte_train + margen) & (fechas <= corte_val)
-    mascara_test = fechas > corte_val + margen
+    return tuple(
+        _filtrar(conjunto, m)
+        for m in (
+            fechas <= corte_train,
+            (fechas > corte_train + margen) & (fechas <= corte_val),
+            fechas > corte_val + margen,
+        )
+    )
 
-    descartadas = len(fechas) - int(mascara_train.sum() + mascara_val.sum() + mascara_test.sum())
-    if descartadas:
-        print(f"Embargo: {descartadas} ventanas descartadas en los cortes.")
 
-    return tuple(_filtrar(conjunto, m) for m in (mascara_train, mascara_val, mascara_test))
+def auditar_solape(
+    conjuntos: dict[str, Conjunto],
+    ventanas: Ventanas,
+    indice: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    """Sesiones de mercado que comparten cada par de particiones.
+
+    Cómo se lee: una fila por pareja. ``sesiones_compartidas`` es lo único que
+    importa y tiene que ser **cero**: es el número de sesiones del panel que
+    entran en la huella ``[t - pasado + 1, t + horizonte]`` de alguna ventana de
+    las dos particiones a la vez. ``hueco_sesiones`` es la distancia en
+    posiciones entre la última ventana de una y la primera de la otra, y
+    ``minimo_exigido`` lo que tendría que valer.
+
+    Se cuenta por **conjuntos de posiciones** y no restando fechas a propósito:
+    restar fechas es justamente lo que produjo el defecto que esta función
+    existe para detectar.
+
+    Qué la invalida: `indice` tiene que ser el mismo `canales.index` con el que
+    se construyeron las ventanas. Con otro índice las posiciones no significan
+    nada y la tabla dará ceros tranquilizadores y falsos. Y no detecta fuga por
+    parámetros: un escalador ajustado con test pasa esta tabla sin despeinarse.
+
+    Parameters
+    ----------
+    conjuntos
+        ``{nombre: Conjunto}`` en orden cronológico.
+    ventanas
+        Geometría de las ventanas.
+    indice
+        Índice de fechas del panel de canales.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Indexado por ``"a | b"``, con ``ventanas_a``, ``ventanas_b``,
+        ``hueco_sesiones``, ``minimo_exigido``, ``sesiones_compartidas``,
+        ``desde``, ``hasta`` y ``ok``.
+    """
+    posicion = pd.Series(np.arange(len(indice)), index=indice)
+
+    def _huella(conjunto: Conjunto) -> set[int]:
+        centros = posicion[conjunto.fechas].to_numpy()
+        return set(
+            np.concatenate(
+                [
+                    np.arange(i - ventanas.pasado + 1, i + ventanas.horizonte + 1)
+                    for i in centros
+                ]
+            )
+        )
+
+    huellas = {n: _huella(c) for n, c in conjuntos.items()}
+    nombres = list(conjuntos)
+    filas = []
+    for k, a in enumerate(nombres):
+        for b in nombres[k + 1 :]:
+            compartidas = sorted(huellas[a] & huellas[b])
+            filas.append(
+                {
+                    "frontera": f"{a} | {b}",
+                    "ventanas_a": len(conjuntos[a].fechas),
+                    "ventanas_b": len(conjuntos[b].fechas),
+                    "hueco_sesiones": int(
+                        posicion[conjuntos[b].fechas[0]]
+                        - posicion[conjuntos[a].fechas[-1]]
+                    ),
+                    "minimo_exigido": ventanas.solape_maximo + 1,
+                    "sesiones_compartidas": len(compartidas),
+                    "desde": indice[compartidas[0]] if compartidas else pd.NaT,
+                    "hasta": indice[compartidas[-1]] if compartidas else pd.NaT,
+                    "ok": not compartidas,
+                }
+            )
+    return pd.DataFrame(filas).set_index("frontera")
+
+
+def _huecos_por_dias(indice: pd.DatetimeIndex, dias_naturales: int) -> np.ndarray:
+    """Hueco en sesiones que produce un embargo en días, según dónde caiga el corte."""
+    fin = indice + pd.Timedelta(days=dias_naturales)
+    completo = fin <= indice[-1]
+    return (
+        np.searchsorted(indice.to_numpy(), fin.to_numpy(), side="right")
+        - np.arange(len(indice))
+    )[completo]
+
+
+def comparar_embargos(
+    conjunto: Conjunto,
+    particiones,
+    ventanas: Ventanas,
+    indice: pd.DatetimeIndex,
+    dias_naturales: tuple[int, ...] = (85, 119, 125),
+) -> pd.DataFrame:
+    """Coste y garantía de cada forma de fijar el embargo, medidos.
+
+    Cómo se lee: ``solape`` tiene que ser cero y ``descartadas`` es lo que cuesta
+    conseguirlo. La columna que decide es ``cortes_cortos_pct``: el porcentaje de
+    las fechas de corte posibles del panel para las que ese número de días
+    naturales **no llega** al hueco mínimo. Un embargo en días con
+    ``cortes_cortos_pct`` distinto de cero funciona por dónde caen los festivos
+    alrededor de este corte concreto, no por diseño; la fila en sesiones vale
+    cero por construcción, no por suerte.
+
+    Qué la invalida: ``cortes_cortos_pct`` se mide sobre el calendario de **este**
+    panel. Otro periodo daría otros porcentajes, y esa dependencia es justamente
+    el argumento contra medir el embargo en días.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Una fila por alternativa, con ``train``, ``val``, ``test``,
+        ``descartadas``, ``solape`` y ``cortes_cortos_pct``.
+    """
+    minimo = ventanas.solape_maximo + 1
+    filas = []
+
+    for dias in dias_naturales:
+        partes = partir_por_dias_naturales(
+            conjunto, particiones.train_hasta, particiones.val_hasta, dias
+        )
+        nombres = dict(zip(("train", "val", "test"), partes))
+        solape = int(
+            auditar_solape(nombres, ventanas, indice)["sesiones_compartidas"].sum()
+        )
+        cortos = _huecos_por_dias(indice, dias) < minimo
+        filas.append(
+            {
+                "embargo": f"{dias} días naturales",
+                "train": len(partes[0].fechas),
+                "val": len(partes[1].fechas),
+                "test": len(partes[2].fechas),
+                "descartadas": len(conjunto.fechas) - sum(len(p.fechas) for p in partes),
+                "solape": solape,
+                "cortes_cortos_pct": round(100 * float(cortos.mean()), 1),
+            }
+        )
+
+    partes = partir(
+        conjunto,
+        particiones.train_hasta,
+        particiones.val_hasta,
+        particiones.embargo_sesiones,
+        ventanas,
+    )
+    nombres = dict(zip(("train", "val", "test"), partes))
+    filas.append(
+        {
+            "embargo": f"{particiones.embargo_sesiones} sesiones",
+            "train": len(partes[0].fechas),
+            "val": len(partes[1].fechas),
+            "test": len(partes[2].fechas),
+            "descartadas": len(conjunto.fechas) - sum(len(p.fechas) for p in partes),
+            "solape": int(
+                auditar_solape(nombres, ventanas, indice)["sesiones_compartidas"].sum()
+            ),
+            "cortes_cortos_pct": 0.0,
+        }
+    )
+    return pd.DataFrame(filas).set_index("embargo")
+
+
+def perfil_por_canal(
+    conjuntos: dict[str, Conjunto], nombres: list[str], estadistico: str = "media"
+) -> pd.DataFrame:
+    """Media o desviación de cada canal en cada partición, sobre todas las ventanas.
+
+    Es la comprobación de que el escalado se ajustó **solo con train**: la columna
+    de train tiene que dar media 0 y desviación 1 en los veinte canales, y las
+    otras dos no. Si validación o test dieran también 0 y 1, el escalador habría
+    visto datos que no debía.
+
+    De paso mide el desplazamiento de distribución entre particiones, que es lo
+    que acota cuánto se puede extrapolar de los resultados del notebook 12.
+
+    Parameters
+    ----------
+    conjuntos
+        ``{nombre: Conjunto}`` ya escalados.
+    nombres
+        Nombres de canal, de `config.nombres_canales()`. Fijan el orden, que es
+        el orden de columnas de `X`.
+    estadistico
+        ``"media"`` o ``"desviacion"``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Canales en el índice, una columna por partición.
+
+    Raises
+    ------
+    ValueError
+        Si `estadistico` no es uno de los dos admitidos.
+    """
+    if estadistico not in {"media", "desviacion"}:
+        raise ValueError(f"Estadistico desconocido: {estadistico!r}")
+    funcion = np.mean if estadistico == "media" else np.std
+    return pd.DataFrame(
+        {
+            n: funcion(c.X.reshape(-1, c.X.shape[-1]), axis=0)
+            for n, c in conjuntos.items()
+        },
+        index=list(nombres),
+    )
 
 
 def _filtrar(conjunto: Conjunto, mascara: np.ndarray) -> Conjunto:

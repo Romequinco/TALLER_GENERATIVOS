@@ -149,8 +149,25 @@ medio intercambia calma y crisis de forma errática entre ejecuciones.
 
 ## D7 · Split temporal con embargo de 85 sesiones
 
-**Decisión.** Particiones por fecha, con 85 sesiones descartadas en cada
-frontera. Nunca `train_test_split` aleatorio.
+**Decisión.** Particiones por fecha, con 85 **sesiones de mercado** descartadas
+en cada frontera. Nunca `train_test_split` aleatorio.
+
+**Corrección (notebook 02).** El código aplicaba el embargo con
+`pd.Timedelta(days=85)`, es decir en **días naturales**, mientras el catálogo y
+esta decisión decían "sesiones". No es lo mismo: 85 días naturales son 59
+sesiones y hacen falta 81. Medido: **22 sesiones quedaban simultáneamente en
+train y en validación**, y otras 22 entre validación y test —enero y febrero de
+2022, el episodio principal del tramo de test—. Era una fuga real que habría
+invalidado el experimento.
+
+Se corrige contando el embargo en **posiciones del índice de mercado**. El valor
+85 no cambia; cambia la unidad en que se lee, y el campo pasa a llamarse
+`embargo_sesiones`. La alternativa —subir los días naturales hasta que el hueco
+salga— se descarta con datos: 119 días **no llegan al mínimo en el 2,5 % de las
+fechas de corte posibles** del panel y 125 descartan más ventanas que la opción
+en sesiones. Un embargo que funciona según dónde caigan los festivos es una
+coincidencia, no una garantía. `partir` ahora lanza si el embargo es menor que el
+solape, que es la comprobación que habría impedido el fallo.
 
 **Por qué.** Las ventanas se desplazan un día y comparten 59 de 60 observaciones
 con su vecina. Con split aleatorio, prácticamente toda muestra de test tiene un
@@ -435,7 +452,7 @@ trabajo mide. Medido sobre este panel:
 
 | técnica | efecto medido |
 |---|---|
-| `ffill` sobre rejilla hábil | +222 sesiones inventadas (+3,7 %), los retornos nulos de `sp500` pasan de 3 a 225 y la volatilidad realizada se sesga −2,0 % |
+| `ffill` **(A)** sobre rejilla hábil | +222 sesiones inventadas (+3,7 %), los retornos nulos de `sp500` pasan de 3 a 225 y la volatilidad realizada se sesga −2,0 % |
 | winsorizar al 1 % | curtosis 16,5 → **6,4**, por debajo de la banda bootstrap del propio panel [7,3 – 21,5] **y por debajo del 8,0 que produce nuestro propio generador gaussiano** |
 | winsorizar al 5 % | `curtosis_residuos` 7,3 → **5,3**, por debajo de la banda [5,7 – 11,2]: **H1 se vuelve falsa sobre los datos reales y todo generador queda automáticamente no refutado** |
 | recortar el 1 % extremo | 67 % de las 58 bajas caen en 2008 y 2020, y abre un hueco de 13 días naturales en marzo de 2020 que dispara el control de contigüidad ya existente |
@@ -448,6 +465,44 @@ que se supone que hay que compararlo**, y el notebook 05 "refutaría" la premisa
 trabajo por un artefacto de preprocesado. Además, ajustar los cortes sobre la
 muestra completa sería fuga; ajustados solo con train seguirían censurando 18
 observaciones de test, que D7 obliga a mantener 100 % reales.
+
+**Corrección de alcance: "rellenar" son dos operaciones, no una.** La tabla de
+arriba medía una sola, y el nombre compartido tapaba la otra:
+
+- **(A) Reindexar a una rejilla de días hábiles y rellenar.** **Inventa** sesiones
+  que no existieron. Es lo que mide la tabla y **sigue prohibido**.
+- **(B) Rellenar por activo dentro del calendario del índice, antes de la
+  intersección.** **Recupera** sesiones reales de la NYSE que se descartaban
+  porque un activo concreto no cotizó ese día. **Se adopta.**
+
+Lo que separa (B) de (A) es el **anclaje**, y es la parte que se puede hacer mal.
+La unión de calendarios que devuelve yfinance ya contiene los días en que
+`DX-Y.NYB` cotiza en ICE con la NYSE cerrada; rellenar sobre esa unión, sin
+anclar, **es (A)**: mete 18 festivos inventados —el 4 de julio de 2003, los
+funerales de Reagan, Ford y Carter—, sube los retornos nulos de 834 a 1.091 y
+borra el hueco de calendario del 2 de enero de 2007, que era un cierre real. Por
+eso `datos.alinear()` ancla primero al calendario del activo de rol `indice` y
+solo después rellena.
+
+**Qué hace (B) sobre este panel.** De las 20 sesiones que el recorte descartaba,
+**18 eran festivos verificables de la NYSE** —bien descartados— y **2 eran
+sesiones reales** perdidas porque `dolar_indice` no cotizó: el 10 de octubre de
+2016 (Columbus Day) y el 11 de noviembre de 2016 (Veterans Day). El panel pasa de
+5.940 a 5.942 sesiones y `canales` de 5.668 a 5.670 filas; `curtosis_residuos`
+va de 7,29 a 7,23 con banda [5,6 – 10,3], de modo que **H1 sobrevive**; el AUC de
+los 20 canales se mueve menos de 0,0001; y la causalidad sigue en 20/20.
+
+**Sobre el tope de relleno.** El hueco más largo del universo dentro del
+calendario del índice mide **una sola sesión**, así que 1, 2, 5 o sin tope dan hoy
+exactamente el mismo panel: el número no elige un resultado, elige lo que se
+autorizará mañana. Se adopta el **5** que fija el catálogo, con una advertencia
+medida: borrando y rellenando k cierres consecutivos del índice,
+`curtosis_residuos` da 7,29 (k=1), 7,30 (k=3) y **14,88 (k=5)** —fuera de la banda
+de H1—, y `vol_futura` se desvía un 2,2 %, 6,8 % y **72 %**. Es decir, un solo
+relleno que agote el tope refutaría la hipótesis del trabajo por un artefacto de
+preprocesado. Por eso `calidad.auditar_panel` tiene una fila `relleno` que **avisa
+de cualquier relleno de más de una sesión**: el tope es un seguro, y el aviso es
+lo que impide que se use sin verlo.
 
 **Dos naturalezas, no dos grados.** Los cinco primeros controles —tipos, índice,
 finitud, positividad, degeneradas— son **invariantes**: cosas imposibles en datos

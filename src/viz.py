@@ -279,6 +279,74 @@ def mapa_canales(canales: pd.DataFrame, titulo: str | None = None, eje=None):
     return eje
 
 
+def carril_particiones(
+    conjuntos: dict,
+    indice: pd.DatetimeIndex,
+    ventanas,
+    solape: pd.DataFrame,
+    titulo: str | None = None,
+    eje=None,
+):
+    """Las tres particiones sobre el eje temporal, con el embargo entre ellas.
+
+    Cómo se lee: cada barra es la extensión de una partición, no una ventana. Lo
+    que hay que mirar son los **huecos entre barras**: son el embargo, y su
+    anchura tiene que bastar para que ninguna sesión entre en la huella de dos
+    particiones a la vez. Las marcas rojas señalan las sesiones que sí lo hacen;
+    si aparece alguna, el experimento está contaminado y no vale seguir.
+
+    La huella de una ventana no es su fecha: son las `pasado + horizonte`
+    sesiones que abarca. Por eso el hueco se mide en sesiones y no en días
+    naturales, y por eso las barras se dibujan extendidas hasta el final de la
+    huella de su última ventana.
+
+    Qué la invalida: si las barras se tocan, el hueco es cero y no hay embargo.
+    Si hay marcas rojas, el embargo existe pero es corto. Y si `indice` no es el
+    mismo con el que se construyeron las ventanas, las posiciones no significan
+    nada y la figura dará un aprobado falso.
+    """
+    eje = eje or plt.subplots()[1]
+    posicion = pd.Series(np.arange(len(indice)), index=indice)
+    huella = ventanas.pasado + ventanas.horizonte
+
+    for fila, (nombre, conjunto) in enumerate(conjuntos.items()):
+        inicio = conjunto.fechas[0] - pd.Timedelta(days=0)
+        fin_pos = min(int(posicion[conjunto.fechas[-1]]) + ventanas.horizonte, len(indice) - 1)
+        eje.barh(
+            0, indice[fin_pos] - inicio, left=inicio, height=0.55,
+            color=PALETA[fila], alpha=0.85,
+        )
+        eje.text(
+            inicio + (indice[fin_pos] - inicio) / 2, 0,
+            f"{nombre}\n{len(conjunto.fechas)} ventanas",
+            ha="center", va="center", fontsize=9, color="white", fontweight="bold",
+        )
+
+    contaminadas = solape[solape["sesiones_compartidas"] > 0]
+    for _, fila in contaminadas.iterrows():
+        eje.axvspan(fila["desde"], fila["hasta"], color=PALETA[7], alpha=0.9, lw=0)
+        eje.annotate(
+            f"{int(fila['sesiones_compartidas'])} sesiones en dos particiones",
+            xy=(fila["desde"], 0.42), xytext=(0, 6), textcoords="offset points",
+            ha="center", fontsize=8, color=PALETA[7], fontweight="bold",
+        )
+
+    total = int(solape["sesiones_compartidas"].sum())
+    eje.set_title(
+        titulo
+        or (f"Sin solape: la huella de {huella} sesiones no cruza ninguna frontera"
+            if not total else f"{total} sesiones caen en dos particiones a la vez"),
+        fontsize=10, fontweight="normal",
+    )
+    eje.set_yticks([])
+    eje.set_ylim(-0.5, 0.75)
+    eje.set_xlabel(
+        f"los huecos entre barras son el embargo; cada ventana abarca {huella} sesiones"
+    )
+    eje.grid(False, axis="y")
+    return eje
+
+
 def supervivencia_colas(retornos: pd.Series, titulo: str | None = None, eje=None):
     """Probabilidad de superar cada nivel de desviaciones típicas, real y normal.
 

@@ -235,6 +235,14 @@ def auditar_panel(
     filas.append(("cobertura", desfase, 7,
                   f"{idx[0].date()} a {idx[-1].date()} ({len(idx)} sesiones)"))
 
+    # Relleno: cuántas sesiones consecutivas ha arrastrado `alinear`. Un relleno
+    # de más de una sesión mete un retorno nulo y concentra en el siguiente el
+    # movimiento de varios días, lo que contamina la volatilidad realizada.
+    plano = precios.eq(precios.shift()).all(axis=1)
+    grupo = (~plano).cumsum()
+    relleno = int(plano.groupby(grupo).sum().max()) if len(plano) else 0
+    filas.append(("relleno", relleno, 1, f"{relleno} sesiones planas seguidas como máximo"))
+
     tabla = pd.DataFrame(filas, columns=["control", "medida", "limite", "donde"]).set_index("control")
     excede = tabla["medida"] > tabla["limite"]
     # `densidad` es la única fila donde la medida debe SUPERAR al límite.
@@ -248,5 +256,125 @@ def auditar_panel(
         rotos = list(tabla.index[tabla["veredicto"] == "fallo"])
         raise ValueError(
             f"El panel no supera los invariantes de integridad: {rotos}.\n{tabla.to_string()}"
+        )
+    return tabla
+
+
+#: Controles del dataset de ventanas cuya violación es imposible en datos
+#: correctos. Igual que en el panel, lanzan.
+INVARIANTES_VENTANAS = (
+    "finitud_X",
+    "finitud_objetivos",
+    "rango_regimen",
+    "positividad_vol",
+    "alineamiento",
+)
+
+
+def auditar_ventanas(
+    conjuntos: dict,
+    n_regimenes: int,
+    *,
+    minimo_por_clase: int = 30,
+    estricto: bool = True,
+) -> pd.DataFrame:
+    """Tabla de control del dataset de ventanas: `X`, `y_reg` e `y_vol` a la vez.
+
+    Hermana de `auditar_panel`, con la misma doctrina: ``fallo`` y ``aviso`` no
+    son dos grados de gravedad sino dos naturalezas. Las cinco primeras filas son
+    invariantes y lanzan; la última es un aviso.
+
+    Cómo se lee: si todo está en ``ok``, el dataset que se va a escribir es
+    consumible tal cual por los once cuadernos siguientes. Si algo da ``fallo``,
+    **no se imputa nada**: `features.construir_canales` ya recortó las filas
+    incompletas y `construir_ventanas` ya descarta las posiciones sin objetivo
+    finito, así que un NaN aquí solo puede venir de un error aguas arriba —un
+    canal nuevo mal declarado, un `shift` mal alineado, un parquet de otra
+    ejecución— y rellenarlo lo convertiría en un error silencioso. La reparación
+    es volver al cuaderno 00 o al 01, no tapar la fila.
+
+    Qué la invalida: no comprueba que los **valores** sean correctos. Un dataset
+    construido con el índice desalineado entre canales y objetivos pasa las seis
+    filas. De eso se ocupan `features.contraste_causalidad` en el 00 y
+    `ventanas.auditar_solape` aquí.
+
+    Parameters
+    ----------
+    conjuntos
+        ``{nombre: Conjunto}``, típicamente las tres particiones.
+    n_regimenes
+        Número de clases admisibles para ``y_reg``.
+    minimo_por_clase
+        Ventanas por debajo de las cuales una clase se considera demasiado
+        escasa. 30 es una convención: por debajo, sus métricas por clase son
+        ruido. No lanza.
+    estricto
+        Si es ``True`` lanza cuando algún invariante falla.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Seis filas indexadas por ``control``, con ``veredicto``, ``medida``,
+        ``limite`` y ``donde``.
+
+    Raises
+    ------
+    ValueError
+        Si `estricto` y algún invariante falla.
+    """
+    filas = []
+
+    no_finitos = {n: int((~np.isfinite(c.X)).sum()) for n, c in conjuntos.items()}
+    total = sum(no_finitos.values())
+    filas.append(("finitud_X", total, 0,
+                  "sin NaN ni inf en X" if not total else f"por partición: {no_finitos}"))
+
+    no_finitos_y = {n: int((~np.isfinite(c.y_vol)).sum()) for n, c in conjuntos.items()}
+    total_y = sum(no_finitos_y.values())
+    filas.append(("finitud_objetivos", total_y, 0,
+                  "sin NaN ni inf en y_vol" if not total_y else f"por partición: {no_finitos_y}"))
+
+    fuera = {n: int(((c.y_reg < 0) | (c.y_reg >= n_regimenes)).sum()) for n, c in conjuntos.items()}
+    filas.append(("rango_regimen", sum(fuera.values()), 0,
+                  f"y_reg dentro de [0, {n_regimenes})" if not sum(fuera.values()) else f"{fuera}"))
+
+    negativas = {n: int((c.y_vol <= 0).sum()) for n, c in conjuntos.items()}
+    minimo_vol = min(float(c.y_vol.min()) for c in conjuntos.values())
+    filas.append(("positividad_vol", sum(negativas.values()), 0,
+                  f"mínimo de y_vol {minimo_vol:.4f}"))
+
+    desalineados = sum(
+        len({len(c.X), len(c.y_reg), len(c.y_vol), len(c.fechas)}) != 1
+        or not c.fechas.is_monotonic_increasing
+        for c in conjuntos.values()
+    )
+    filas.append(("alineamiento", desalineados, 0,
+                  "longitudes iguales e índice creciente" if not desalineados
+                  else "hay particiones descuadradas"))
+
+    conteo = {
+        f"{n}/{k}": int((c.y_reg == k).sum())
+        for n, c in conjuntos.items()
+        for k in range(n_regimenes)
+    }
+    escasa = min(conteo, key=conteo.get)
+    filas.append(("clases_pobladas", conteo[escasa], minimo_por_clase,
+                  f"la más escasa es {escasa} con {conteo[escasa]} ventanas"))
+
+    tabla = pd.DataFrame(filas, columns=["control", "medida", "limite", "donde"]).set_index("control")
+    excede = tabla["medida"] > tabla["limite"]
+    # `clases_pobladas` es la única fila donde la medida debe SUPERAR al límite.
+    excede["clases_pobladas"] = (
+        tabla.loc["clases_pobladas", "medida"] < tabla.loc["clases_pobladas", "limite"]
+    )
+    tabla["veredicto"] = np.where(
+        ~excede, "ok", np.where(tabla.index.isin(INVARIANTES_VENTANAS), "fallo", "aviso")
+    )
+    tabla = tabla[["veredicto", "medida", "limite", "donde"]]
+
+    if estricto and (tabla["veredicto"] == "fallo").any():
+        rotos = list(tabla.index[tabla["veredicto"] == "fallo"])
+        raise ValueError(
+            f"El dataset de ventanas no supera los invariantes: {rotos}.\n{tabla.to_string()}"
         )
     return tabla

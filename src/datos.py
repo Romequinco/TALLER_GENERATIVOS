@@ -79,27 +79,92 @@ def descargar_precios(forzar: bool = False) -> pd.DataFrame:
     return precios
 
 
-def alinear(precios: pd.DataFrame) -> pd.DataFrame:
-    """Recorta el panel al tramo en que TODAS las series tienen dato.
+def alinear(
+    precios: pd.DataFrame,
+    *,
+    relleno_maximo: int | None = None,
+    calendario_de: str | None = None,
+) -> pd.DataFrame:
+    """Ancla el panel a un calendario, rellena huecos cortos y recorta el resto.
 
-    Política heredada del TFM de regímenes: no se imputa nunca. Un hueco en una
-    serie es una fecha que no existe para el panel, no un NaN que rellenar con
-    el valor anterior; rellenar inventaría movimientos de precio que no
-    ocurrieron y contaminaría la volatilidad realizada.
+    Hay dos operaciones que se llaman "rellenar" y solo una es admisible. La
+    diferencia está en el orden:
 
-    En la práctica esto recorta el inicio hasta el activo más tardío del
-    universo y elimina los días festivos parciales (una bolsa abierta y otra
-    cerrada).
+    1. **Anclar.** El índice pasa a ser el del activo de rol ``indice``. Esto es
+       lo que impide inventar sesiones: la unión de calendarios que devuelve
+       yfinance ya trae los días en que `DX-Y.NYB` cotiza en ICE con la NYSE
+       cerrada, y rellenar sobre ella fabricaría 18 festivos —el 4 de julio de
+       2003, los funerales de Reagan, Ford y Carter— con 257 retornos nulos.
+    2. **Rellenar hacia atrás.** Ya dentro del calendario del índice, un hueco
+       corto de un activo suelto es una sesión real de mercado en la que ese
+       activo no cotizó, no una sesión inexistente. Se arrastra el último cierre
+       conocido, como mucho `relleno_maximo` sesiones.
+    3. **Recortar.** Lo que siga sin dato se va, y nunca se imputa más allá del
+       tope.
 
-    Al salir se comprueban los invariantes de integridad. Este es el embudo
-    único por el que un panel se vuelve canónico, así que es el sitio donde la
-    comprobación cuesta unos milisegundos y evita que un defecto se manifieste
-    tres celdas más tarde en forma de un `dropna` que se lleva por delante un
-    tercio del dataset.
+    Sobre este panel el paso 2 recupera **dos** sesiones —2016-10-10 (Columbus
+    Day) y 2016-11-11 (Veterans Day)— en las que la NYSE abrió y `dolar_indice`
+    no cotizó. Son los dos únicos huecos del universo dentro del calendario del
+    índice y ambos miden una sesión, de modo que hoy `relleno_maximo` no llega a
+    activarse con ningún valor mayor o igual que 1.
+
+    Qué hay que vigilar: el relleno es causal —solo mira hacia atrás, y
+    `features.contraste_causalidad` lo confirma con discrepancia y huérfanas a
+    cero— pero no es gratis. Cada sesión rellenada inventa un retorno nulo y
+    concentra en la siguiente el movimiento de dos días. Con un hueco de una
+    sesión eso mueve `vol_futura` un 2,2 % en el peor punto; con uno de cinco lo
+    movería un 72 % y llevaría `curtosis_residuos` de 7,3 a 14,9, fuera de la
+    banda de H1. Por eso hay tope y por eso `calidad.auditar_panel` avisa de
+    cualquier relleno de más de una sesión.
+
+    Parameters
+    ----------
+    precios
+        Panel de cierres sin alinear, tal como lo devuelve `yf.download`: con la
+        unión de los calendarios de todas las fuentes y NaN donde una serie no
+        cotizó.
+    relleno_maximo
+        Sesiones consecutivas que se arrastra como máximo el último cierre
+        conocido. ``0`` desactiva el relleno. ``None`` lo lee del catálogo.
+    calendario_de
+        Activo cuyo calendario define qué fechas son sesión. ``None`` lo lee del
+        catálogo, que declara el activo de rol ``indice``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Panel canónico, ordenado, sin NaN y restringido al calendario declarado.
+
+    Raises
+    ------
+    KeyError
+        Si `calendario_de` no es una columna del panel. Se falla aquí y no tres
+        celdas más tarde: un calendario mal declarado no da error, da un panel
+        silenciosamente distinto.
+    ValueError
+        Si el panel resultante viola algún invariante de integridad.
     """
     from .calidad import invariantes
+    from .config import huecos as _huecos
 
-    panel = precios.dropna(how="any").sort_index()
+    politica = _huecos()
+    if relleno_maximo is None:
+        relleno_maximo = politica["relleno_maximo"]
+    if calendario_de is None:
+        calendario_de = politica["calendario_de"]
+
+    if calendario_de not in precios.columns:
+        raise KeyError(
+            f"El calendario de anclaje declara '{calendario_de}', que no es una "
+            f"columna del panel. Columnas disponibles: {list(precios.columns)}."
+        )
+
+    panel = precios.sort_index()
+    panel = panel[panel[calendario_de].notna()]
+    if relleno_maximo:
+        panel = panel.ffill(limit=int(relleno_maximo))
+
+    panel = panel.dropna(how="any")
     invariantes(panel)
     return panel
 

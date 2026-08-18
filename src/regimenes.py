@@ -421,3 +421,19 @@ def distribucion(etiquetas: pd.Series | np.ndarray, n_estados: int) -> pd.DataFr
             "porcentaje": (100 * conteo / conteo.sum()).round(2),
         }
     ).rename_axis("regimen")
+
+
+def tramos_contiguos(etiquetas: pd.Series | np.ndarray, clase: int) -> int:
+    """Número de rachas contiguas de `clase`, no de muestras.
+
+    Es el tamaño muestral que hay que citar en cualquier intervalo de confianza
+    sobre la clase de crisis. Unas decenas de ventanas de crisis en test son un
+    puñado de episodios, y tratarlas como observaciones independientes estrecha
+    las bandas por un factor enorme.
+
+    Cuenta rachas sobre el **orden** del vector, así que solo tiene sentido con
+    etiquetas ordenadas cronológicamente. Sobre un conjunto barajado, o sobre
+    muestras sintéticas, devuelve un número sin significado.
+    """
+    marca = np.asarray(etiquetas).ravel() == clase
+    return int(np.count_nonzero(marca & ~np.concatenate([[False], marca[:-1]])))

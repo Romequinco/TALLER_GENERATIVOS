@@ -48,21 +48,28 @@ class Ventanas:
 
     @property
     def solape_maximo(self) -> int:
-        """Días que puede compartir una ventana de train con una de test.
+        """**Sesiones de mercado** que puede compartir una ventana con otra.
 
         Es el tamaño mínimo del embargo entre particiones: una ventana que
-        empieza en `t` usa datos hasta `t + pasado + horizonte - 1`.
+        empieza en `t` usa datos hasta `t + pasado + horizonte - 1`. Son
+        sesiones, no días naturales: los festivos no forman parte de la huella.
         """
         return self.pasado + self.horizonte - 1
 
 
 @dataclass(frozen=True)
 class Particiones:
-    """Cortes temporales de train / validación / test."""
+    """Cortes temporales de train / validación / test.
+
+    El embargo va en **sesiones de mercado**, y el nombre del campo lo dice
+    porque la versión anterior se llamaba `embargo_dias` y se aplicaba con
+    `pd.Timedelta(days=...)`: producía un hueco de 59 sesiones donde hacían
+    falta 81, y dejaba 22 sesiones en dos particiones a la vez.
+    """
 
     train_hasta: str
     val_hasta: str
-    embargo_dias: int
+    embargo_sesiones: int
 
 
 def ventanas() -> Ventanas:
@@ -75,8 +82,13 @@ def particiones() -> Particiones:
     return Particiones(
         train_hasta=str(p["train_hasta"]),
         val_hasta=str(p["val_hasta"]),
-        embargo_dias=p["embargo_dias"],
+        embargo_sesiones=p["embargo_sesiones"],
     )
+
+
+def huecos() -> dict:
+    """Política de huecos del catálogo: calendario de anclaje y relleno máximo."""
+    return cargar_catalogo()["huecos"]
 
 
 def tickers(rol: str | None = None) -> list[str]:

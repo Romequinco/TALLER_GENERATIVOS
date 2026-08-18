@@ -28,7 +28,30 @@ meta:
 periodo:
   inicio: "2003-01-02"   # alineado con la "pista B" del TFM de regímenes
   fin: "2026-08-15"
-  calendario: NYSE       # rejilla base; las series se alinean por fecha común
+  calendario: NYSE       # lo materializa `huecos.calendario_de`, ver más abajo
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1.b Política de huecos
+#
+# Hay DOS operaciones que se llaman "rellenar" y solo una es admisible (ver D23):
+#   (A) reindexar a una rejilla hábil y rellenar  -> INVENTA sesiones. Prohibido.
+#   (B) rellenar por activo DENTRO del calendario del índice -> RECUPERA sesiones
+#       reales de mercado que el recorte tiraba. Es lo que hace datos.alinear().
+#
+# El anclaje es lo único que separa (B) de (A): la unión de calendarios que
+# devuelve yfinance ya trae los días en que DX-Y.NYB cotiza en ICE con la NYSE
+# cerrada, y rellenar sobre ella fabricaría 18 festivos —el 4 de julio de 2003,
+# los funerales de Reagan, Ford y Carter— con sus 257 retornos nulos.
+# ─────────────────────────────────────────────────────────────────────────────
+huecos:
+  calendario_de: sp500   # activo de rol `indice`: su calendario define qué es sesión
+  relleno_maximo: 5      # sesiones consecutivas que se arrastra un cierre anterior
+  # Medido sobre este panel: el único activo con huecos dentro del calendario del
+  # índice es `dolar_indice`, con 2 huecos de UNA sesión, así que cualquier valor
+  # >= 1 da hoy exactamente el mismo panel. El tope importa para el futuro: un
+  # relleno de 5 sesiones seguidas en el índice llevaría `curtosis_residuos` de
+  # 7,3 a 14,9, fuera de la banda de H1, y desviaría `vol_futura` un 72 %. Por eso
+  # `calidad.auditar_panel` avisa de cualquier relleno de más de una sesión.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Universo de activos (yfinance)
@@ -123,16 +146,20 @@ ventanas:
 # aleatorio metería ventanas casi idénticas en train y test (fuga masiva).
 # Entre particiones se descarta un `embargo` de días para que ninguna ventana
 # de test comparta observaciones con una de train.
-#   mínimo teórico = pasado + horizonte = 60 + 21 = 81
-#   valor adoptado = 85 (margen sobre el mínimo, ver docs/metodologia/
-#   riesgos_datos_sinteticos.md)
+# El embargo se cuenta en SESIONES DE MERCADO, nunca en días naturales. La huella
+# de una ventana es pasado + horizonte = 81 sesiones, así que el mínimo que
+# neutraliza el solape es 80.
+#   mínimo         = 80 sesiones
+#   valor adoptado = 85 sesiones (5 de margen)
+# Contarlo en días naturales fue un fallo real y medido: 85 días naturales son 59
+# sesiones y dejaban 22 sesiones en dos particiones a la vez. Ver el notebook 02.
 # ─────────────────────────────────────────────────────────────────────────────
 particiones:
   metodo: temporal
   train_hasta: "2018-12-31"   # incluye 2008 y 2011: sin crisis en train no hay nada que aprender
   val_hasta:   "2021-12-31"   # incluye el COVID como validación
   # test = el resto (2022 en adelante: mercado bajista de 2022, SVB 2023, 2025)
-  embargo_dias: 85
+  embargo_sesiones: 85
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Etiquetado de regímenes
