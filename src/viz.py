@@ -945,41 +945,101 @@ def real_vs_sintetico(
 
 
 def serie_regimenes(
-    precios: pd.Series, regimen: pd.Series, titulo: str = "Regímenes detectados", eje=None
+    precios: pd.Series,
+    regimen: pd.Series,
+    titulo: str = "Regímenes detectados",
+    episodios: dict[str, tuple[str, str]] | None = None,
+    corte=None,
+    eje=None,
 ):
-    """Precio del índice con el fondo sombreado según el régimen.
+    """Precio del índice con el fondo sombreado según el régimen estimado.
 
-    Es la figura que valida el etiquetado de un vistazo: las bandas de crisis
-    deben caer sobre 2008, 2020 y 2022. Si no lo hacen, el HMM no ha convergido
-    a algo interpretable y no tiene sentido seguir.
+    Cómo se lee: la línea negra es el índice en escala logarítmica y el fondo es
+    el estado del HMM. La calma se deja **sin sombrear** para que la tinta marque
+    solo lo excepcional, y la opacidad crece con la severidad, porque sobre una
+    rampa de un solo tono dos estados con la misma opacidad no se separan
+    impresos. Las barras del borde superior son los episodios de referencia: no
+    salen del modelo, son el patrón externo contra el que se juzga, y la lectura
+    consiste en comprobar que debajo de cada barra hay banda oscura.
+
+    La línea de puntos marca el fin del tramo de entrenamiento. Todo lo que queda
+    a su derecha es inferencia con los parámetros congelados, así que acertar ahí
+    vale más que acertar a la izquierda.
+
+    Qué la invalida: bandas oscuras repartidas por todo el histórico significan
+    que el estado extremo no separa crisis de corrección, y el peso de la clase
+    en `regimenes.control_bloqueante` lo confirmará. Una barra de referencia sin
+    banda debajo invalida el etiquetado entero.
+
+    Parameters
+    ----------
+    precios
+        Serie del índice, indexada por fecha. Debe cubrir el índice de `regimen`.
+    regimen
+        Régimen canonizado día a día, ``0 = calma ... n-1 = crisis``.
+    titulo
+        Título del panel. Afirma la conclusión con su cifra, no nombra el eje.
+    episodios
+        ``{nombre: (desde, hasta)}`` de las crisis de referencia. ``None`` no
+        dibuja ninguna, que es lo correcto cuando la figura no es un control.
+    corte
+        Fecha de fin de train. ``None`` no dibuja la línea.
+    eje
+        Eje de matplotlib. Si es ``None`` se crea uno.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
     """
-    eje = eje or plt.subplots()[1]
-
-    eje.plot(precios.index, precios.to_numpy(), color=TINTA_PRIMARIA, linewidth=1.2)
-
-    n_estados = int(regimen.max()) + 1
-    tonos = rampa_secuencial(n_estados)
-    cambios = regimen.ne(regimen.shift()).cumsum()
-
-    for _, tramo in regimen.groupby(cambios):
-        estado = int(tramo.iloc[0])
-        if estado == 0:  # la calma se deja sin sombrear, para no saturar
-            continue
-        eje.axvspan(tramo.index[0], tramo.index[-1], color=tonos[estado], alpha=0.25, lw=0)
+    from matplotlib.patches import Patch
 
     from .evaluacion import nombres_regimenes
 
-    from matplotlib.patches import Patch
+    eje = eje or plt.subplots()[1]
+    eje.plot(precios.index, precios.to_numpy(), color=TINTA_PRIMARIA, linewidth=1.1, zorder=3)
+
+    n_estados = int(regimen.max()) + 1
+    tonos = rampa_secuencial(n_estados)
+    alfas = np.linspace(0.18, 0.42, n_estados)
+
+    for _, tramo in regimen.groupby(regimen.ne(regimen.shift()).cumsum()):
+        estado = int(tramo.iloc[0])
+        if estado == 0:  # la calma se deja limpia, para no saturar el fondo
+            continue
+        eje.axvspan(
+            tramo.index[0], tramo.index[-1],
+            color=tonos[estado], alpha=alfas[estado], lw=0, zorder=0,
+        )
+
+    # `ymin`/`ymax` van en fracción del eje: evitan componer una transformada
+    # mixta, que sobre un eje vertical logarítmico falla al dibujar.
+    trans = eje.get_xaxis_transform()
+    for nombre, (desde, hasta) in (episodios or {}).items():
+        a, b = pd.Timestamp(desde), pd.Timestamp(hasta)
+        eje.axvspan(a, b, ymin=0.955, ymax=0.99, color=TINTA_PRIMARIA, lw=0, zorder=5)
+        eje.text(
+            a + (b - a) / 2, 0.935, nombre, transform=trans, ha="center",
+            va="top", fontsize=8, color=TINTA_PRIMARIA,
+        )
+
+    if corte is not None:
+        eje.axvline(pd.Timestamp(corte), color=TINTA_SECUNDARIA, linestyle=":", linewidth=1.2, zorder=4)
+        eje.text(
+            pd.Timestamp(corte), 0.02, "fin de train ", transform=trans,
+            ha="right", va="bottom", fontsize=8, color=TINTA_SECUNDARIA,
+        )
 
     etiquetas = nombres_regimenes(n_estados)
     eje.legend(
         handles=[
-            Patch(facecolor=tonos[k], alpha=0.25, label=etiquetas[k])
+            Patch(facecolor=tonos[k], alpha=alfas[k], label=etiquetas[k])
             for k in range(1, n_estados)
         ],
-        loc="upper left",
+        loc="lower right",
+        fontsize=8,
+        ncols=n_estados - 1,
     )
-    eje.set_title(titulo)
-    eje.set_ylabel("nivel del índice")
+    eje.set_title(titulo, fontsize=10, fontweight="normal")
+    eje.set_ylabel("nivel del índice (escala log)")
     eje.set_yscale("log")
     return eje

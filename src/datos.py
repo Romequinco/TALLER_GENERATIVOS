@@ -90,8 +90,18 @@ def alinear(precios: pd.DataFrame) -> pd.DataFrame:
     En la práctica esto recorta el inicio hasta el activo más tardío del
     universo y elimina los días festivos parciales (una bolsa abierta y otra
     cerrada).
+
+    Al salir se comprueban los invariantes de integridad. Este es el embudo
+    único por el que un panel se vuelve canónico, así que es el sitio donde la
+    comprobación cuesta unos milisegundos y evita que un defecto se manifieste
+    tres celdas más tarde en forma de un `dropna` que se lleva por delante un
+    tercio del dataset.
     """
-    return precios.dropna(how="any").sort_index()
+    from .calidad import invariantes
+
+    panel = precios.dropna(how="any").sort_index()
+    invariantes(panel)
+    return panel
 
 
 def validar_cache(precios: pd.DataFrame) -> None:
@@ -132,7 +142,12 @@ def cargar_precios() -> pd.DataFrame:
             "notebooks/00_datos_y_features.ipynb, o llama a "
             "src.datos.descargar_precios()."
         )
-    return pd.read_parquet(RUTA_PRECIOS)
+    precios = pd.read_parquet(RUTA_PRECIOS)
+    # Es la puerta que usan los cuadernos posteriores al 00. Sin esta llamada,
+    # el único control de correspondencia con el catálogo se podía saltar
+    # entrando por aquí.
+    validar_cache(precios)
+    return precios
 
 
 def huella(precios: pd.DataFrame) -> str:

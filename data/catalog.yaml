@@ -148,12 +148,19 @@ regimenes:
   n_iteraciones: 1000
   tolerancia: 1.0e-4
   semillas: [42, 43, 44, 45, 46]   # se queda el ajuste de mayor log-verosimilitud
+  # Un HMM gaussiano supone emisiones normales y estacionarias dentro de cada
+  # estado. Solo entran features que cumplan las dos cosas: si una deriva, el
+  # modelo gasta un estado en separar épocas en vez de regímenes.
   features_etiquetado:
     - ret_sp500
     - vol_realizada_z
-    - drawdown_sp500
-    - spread_credito_z
     - vix_nivel_z
+  # Retiradas tras suspender el control bloqueante del notebook 01. Se conservan
+  # aquí, y no borradas, porque el notebook reconstruye con ellas el ajuste
+  # rechazado: la comparación es el argumento.
+  features_descartadas:
+    - drawdown_sp500     # saturada: el 47 % de las sesiones en el 5 % superior de su recorrido
+    - spread_credito_z   # deriva 1,17 sigmas entre las dos mitades de la muestra
   agregacion_horizonte: modal   # régimen dominante en los `horizonte` días futuros
 
 # ─────────────────────────────────────────────────────────────────────────────

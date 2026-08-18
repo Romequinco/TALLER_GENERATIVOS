@@ -35,6 +35,18 @@ from .config import cargar_catalogo
 # banda, el desempate lo hace el retorno medio (menor retorno = peor régimen).
 FRACCION_VOL_CERCANA = 0.15
 
+#: Episodios de crisis contra los que se valida el etiquetado. No salen del
+#: modelo y no se ajustan a él: son el patrón externo. Las fechas son de dominio
+#: público —de la quiebra de Lehman al suelo de marzo de 2009, el desplome del
+#: COVID y el mercado bajista de tipos de 2022— y viven aquí, y no en el
+#: catálogo, precisamente porque no son un parámetro: moverlas para que el
+#: control pase sería el fraude que el control existe para impedir.
+EPISODIOS_REFERENCIA: dict[str, tuple[str, str]] = {
+    "GFC 2008": ("2008-09-01", "2009-03-31"),
+    "COVID 2020": ("2020-02-20", "2020-04-30"),
+    "Inflación 2022": ("2022-01-01", "2022-10-31"),
+}
+
 
 @dataclass
 class EtiquetadorRegimenes:
@@ -80,24 +92,38 @@ class EtiquetadorRegimenes:
         Se prueban varias semillas porque el algoritmo de Baum-Welch converge a
         óptimos locales; se conserva el ajuste de mayor log-verosimilitud.
         """
+        import logging
+
         from hmmlearn.hmm import GaussianHMM
 
         self.columnas = list(features.columns)
         X = features.to_numpy()
 
+        # hmmlearn avisa de "Model is not converging" cuando la verosimilitud
+        # retrocede unas milésimas en el último paso del EM. Es ruido numérico
+        # —el ajuste ganador converge— pero imprime varias líneas por semilla que
+        # parecen un error grave dentro del notebook. Se silencia aquí y no en el
+        # cuaderno, para que el ruido no dependa de quién llame.
+        registro = logging.getLogger("hmmlearn")
+        nivel = registro.level
+        registro.setLevel(logging.ERROR)
+
         mejor, mejor_ll = None, -np.inf
-        for s in self.semillas:
-            modelo = GaussianHMM(
-                n_components=self.n_estados,
-                covariance_type=self.covarianza,
-                n_iter=self.n_iteraciones,
-                tol=self.tolerancia,
-                random_state=s,
-            )
-            modelo.fit(X)
-            ll = modelo.score(X)
-            if ll > mejor_ll:
-                mejor, mejor_ll = modelo, ll
+        try:
+            for s in self.semillas:
+                modelo = GaussianHMM(
+                    n_components=self.n_estados,
+                    covariance_type=self.covarianza,
+                    n_iter=self.n_iteraciones,
+                    tol=self.tolerancia,
+                    random_state=s,
+                )
+                modelo.fit(X)
+                ll = modelo.score(X)
+                if ll > mejor_ll:
+                    mejor, mejor_ll = modelo, ll
+        finally:
+            registro.setLevel(nivel)
 
         self.modelo = mejor
         self.orden = self._orden_economico(mejor, features)
@@ -225,12 +251,159 @@ def regimen_dominante(
     if metodo == "maximo":
         agregado = ventana.max()
     else:
-        # `mode` no está disponible en rolling; se resuelve con bincount.
+        # `mode` no está disponible en rolling; se resuelve con bincount. El
+        # empate se rompe a favor del estado MÁS severo, como exige la
+        # metodología: `argmax` a secas devolvería el índice más bajo y
+        # etiquetaría como calma un mes mitad calmado mitad en crisis. Afecta a
+        # 9 de 5.647 ventanas, pero la regla tiene que decir lo que hace.
         agregado = ventana.apply(
-            lambda v: float(np.bincount(v.astype(int)).argmax()), raw=True
+            lambda v: float(
+                len(c := np.bincount(v.astype(int))) - 1 - int(np.argmax(c[::-1]))
+            ),
+            raw=True,
         )
 
     return agregado.shift(-(horizonte - 1)).rename("regimen_futuro")
+
+
+def control_bloqueante(
+    regimen_diario: pd.Series,
+    regimen_futuro: pd.Series,
+    n_estados: int,
+    episodios: dict[str, tuple[str, str]] | None = None,
+    banda: tuple[float, float] = (3.0, 20.0),
+    cobertura_minima: float = 50.0,
+) -> pd.DataFrame:
+    """Veredicto de aceptación del etiquetado, fila a fila.
+
+    Es la puerta que hay que cruzar antes de entrenar cualquier generador. Un
+    HMM converge siempre, así que la convergencia no es evidencia de nada: lo
+    que se comprueba es que los estados coinciden con crisis que de verdad
+    ocurrieron y que la clase extrema tiene un tamaño con el que se pueda
+    trabajar.
+
+    Devuelve una tabla y no un booleano, a propósito: cuando falla hay que saber
+    **qué** falló y por cuánto, porque de eso depende si se toca el número de
+    estados o las features de etiquetado.
+
+    Parameters
+    ----------
+    regimen_diario
+        Régimen canonizado día a día, con índice de fechas.
+    regimen_futuro
+        Etiqueta agregada al horizonte. Los NaN del final se descartan.
+    n_estados
+        Número de regímenes; el de crisis es ``n_estados - 1``.
+    episodios
+        ``{nombre: (desde, hasta)}``. ``None`` usa `EPISODIOS_REFERENCIA`.
+    banda
+        Porcentaje mínimo y máximo admisible para la clase de crisis. Por debajo
+        del 3 % no hay con qué entrenar ni evaluar; por encima del 20 % el estado
+        extremo ha dejado de separar crisis de corrección y el taller se queda
+        sin motivo.
+    cobertura_minima
+        Porcentaje mínimo de días en crisis dentro de cada episodio. 50 y no 90
+        porque con tres estados parte de un episodio cae legítimamente en
+        transición: 2022 fue un mercado bajista lento, no un desplome.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Una fila por control, con ``medido``, ``criterio`` y ``ok``. El notebook
+        debe cortar con ``assert tabla["ok"].all()``.
+
+    Notes
+    -----
+    Que el control pase no demuestra que el etiquetado sea bueno: solo descarta
+    las dos formas de estar mal que se pueden medir sin disponer de una etiqueta
+    verdadera. En particular no detecta que el estado intermedio quede vacío en
+    alguna partición, que es un fallo real y hay que mirarlo en `distribucion`.
+    """
+    episodios = EPISODIOS_REFERENCIA if episodios is None else episodios
+    crisis = n_estados - 1
+    filas = []
+
+    for nombre, (desde, hasta) in episodios.items():
+        tramo = regimen_diario.loc[desde:hasta]
+        medido = 100.0 * float((tramo == crisis).mean()) if len(tramo) else float("nan")
+        filas.append(
+            (
+                f"cubre {nombre}",
+                round(medido, 1),
+                f"{cobertura_minima:.0f} % o mas",
+                bool(medido >= cobertura_minima),
+            )
+        )
+
+    etiquetas = pd.Series(regimen_futuro).dropna()
+    peso = 100.0 * float((etiquetas == crisis).mean()) if len(etiquetas) else float("nan")
+    filas.append(
+        (
+            "peso de la clase de crisis",
+            round(peso, 1),
+            f"entre {banda[0]:.0f} % y {banda[1]:.0f} %",
+            bool(banda[0] <= peso <= banda[1]),
+        )
+    )
+
+    return pd.DataFrame(
+        filas, columns=["control", "medido", "criterio", "ok"]
+    ).set_index("control")
+
+
+def diagnostico_features(
+    features: pd.DataFrame,
+    deriva_maxima: float = 0.5,
+    saturacion_maxima: float = 10.0,
+) -> pd.DataFrame:
+    """Mide las dos patologías que rompen las emisiones gaussianas de un HMM.
+
+    Un `GaussianHMM` supone que dentro de cada estado las observaciones son
+    normales y de parámetros constantes. Cuando una feature **deriva**, el modelo
+    gasta estados en separar épocas en vez de regímenes; cuando **satura** contra
+    un tope, la masa puntual del tope no cabe en ninguna normal y el ajuste se
+    vuelve multimodal. Las dos se manifiestan igual en el resultado —un estado de
+    crisis demasiado grande— así que conviene medirlas antes y no diagnosticarlas
+    después.
+
+    Parameters
+    ----------
+    features
+        Candidatas a `regimenes.features_etiquetado`, una por columna.
+    deriva_maxima
+        Umbral de la deriva, en desviaciones típicas de la propia serie.
+    saturacion_maxima
+        Umbral de la saturación, en porcentaje de sesiones.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Una fila por feature con ``deriva`` (salto de la media entre la primera y
+        la segunda mitad de la muestra, en sigmas), ``saturacion`` (porcentaje de
+        sesiones en el 5 % superior del recorrido) y ``apta``.
+
+    Notes
+    -----
+    Los dos umbrales son convenciones, no teoremas: separan con holgura los
+    canales de este panel y no se han calibrado contra ningún otro. Y la prueba
+    es necesaria, no suficiente: una feature puede pasar las dos y aun así no
+    aportar información de régimen, cosa que solo dirá `control_bloqueante`.
+    """
+    filas = {}
+    for nombre, serie in features.items():
+        serie = serie.dropna()
+        mitad = len(serie) // 2
+        deriva = float(
+            abs(serie.iloc[mitad:].mean() - serie.iloc[:mitad].mean()) / serie.std()
+        )
+        recorrido = serie.max() - serie.min()
+        saturacion = 100.0 * float((serie >= serie.max() - 0.05 * recorrido).mean())
+        filas[nombre] = {
+            "deriva": round(deriva, 2),
+            "saturacion": round(saturacion, 1),
+            "apta": bool(deriva <= deriva_maxima and saturacion <= saturacion_maxima),
+        }
+    return pd.DataFrame(filas).T
 
 
 def distribucion(etiquetas: pd.Series | np.ndarray, n_estados: int) -> pd.DataFrame:

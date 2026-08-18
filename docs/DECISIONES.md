@@ -109,9 +109,36 @@ poder discriminante.
 cinco semillas y se conserva el de mayor log-verosimilitud.
 
 **Por qué tres y no dos.** Con dos estados el corte calma/crisis deja una clase
-minoritaria de en torno al 25 %, demasiado poblada para que el desbalance sea el
-problema central. Con tres, el estado extremo queda en torno al 10 % y separa la
+minoritaria de en torno al 37 %, demasiado poblada para que el desbalance sea el
+problema central. Con tres, el estado extremo queda en el **16,1 %** y separa la
 tensión genuina de la simple transición.
+
+**Tres features de etiquetado, no cinco.** La versión inicial usaba `ret_sp500`,
+`vol_realizada_z`, `vix_nivel_z`, `drawdown_sp500` y `spread_credito_z`. **Suspende
+el control bloqueante del notebook 01**: la clase de crisis sale al 39 % y el
+modelo marca **2021 entero** como crisis, el año en que el S&P 500 subió un 26,9 %
+con volatilidad del 13 %.
+
+La causa es que un HMM gaussiano supone emisiones normales y estacionarias dentro
+de cada estado, y dos de las cinco lo incumplen: `spread_credito_z` **deriva**
+—1,17 sigmas de salto entre las dos mitades de la muestra, porque el z-score
+expanding no vuelve nunca de 2008— y `drawdown_sp500` **satura**, con el 47 % de
+las sesiones en el 5 % superior de su recorrido. Con ellas dentro, el estado
+extremo deja de significar "mercado en tensión" y pasa a significar "estamos
+después de 2020".
+
+Retirándolas, la crisis baja al 16,1 %, el control pasa, y —lo que pesa más— el
+ajuste deja de depender de la inicialización: las 20 semillas probadas convergen a
+la misma solución, mientras que con las cinco el segundo óptimo local daba un
+21,2 % y habría suspendido. Un etiquetado que cambia de significado según la
+semilla no sirve como variable objetivo. Las dos descartadas siguen en el catálogo
+bajo `features_descartadas`, porque el notebook 01 reconstruye con ellas el ajuste
+rechazado: la comparación **es** el argumento.
+
+**Nota de alcance.** Que una feature no sirva para *etiquetar* no dice nada sobre
+si sirve como *entrada*. `drawdown_sp500` y `spread_credito_z` siguen siendo dos
+de los seis canales con AUC por encima de 0,70 y se quedan en `X`. Lo que las
+descalifica es el supuesto gaussiano del HMM, no su contenido informativo.
 
 **Canonicalización.** Los estados se ordenan por volatilidad creciente, con el
 retorno medio solo como desempate dentro de bandas de anchura `0.15 × vol
@@ -394,3 +421,50 @@ estamos en el régimen donde ese ruido regulariza.
 **Aviso relacionado.** Subir el número de hilos de PyTorch por encima del número
 de núcleos **físicos** empeora los tiempos. En esta máquina, `set_num_threads(4)`
 sobre 2 núcleos físicos es más lento que dejarlo por defecto.
+
+---
+
+## D23 · Los datos se auditan, no se limpian
+
+**Decisión.** El panel pasa diez controles de integridad en `src/calidad.py`, y
+**no se le aplica ninguna técnica de limpieza**: ni imputación, ni winsorización,
+ni recorte de valores atípicos, ni suavizado, ni remuestreo.
+
+**Por qué.** No es purismo: las técnicas habituales destruyen justo lo que el
+trabajo mide. Medido sobre este panel:
+
+| técnica | efecto medido |
+|---|---|
+| `ffill` sobre rejilla hábil | +222 sesiones inventadas (+3,7 %), los retornos nulos de `sp500` pasan de 3 a 225 y la volatilidad realizada se sesga −2,0 % |
+| winsorizar al 1 % | curtosis 16,5 → **6,4**, por debajo de la banda bootstrap del propio panel [7,3 – 21,5] **y por debajo del 8,0 que produce nuestro propio generador gaussiano** |
+| winsorizar al 5 % | `curtosis_residuos` 7,3 → **5,3**, por debajo de la banda [5,7 – 11,2]: **H1 se vuelve falsa sobre los datos reales y todo generador queda automáticamente no refutado** |
+| recortar el 1 % extremo | 67 % de las 58 bajas caen en 2008 y 2020, y abre un hueco de 13 días naturales en marzo de 2020 que dispara el control de contigüidad ya existente |
+| media móvil centrada de 3 | `ac1_retorno` −0,117 → **+0,610**: fabrica predictibilidad del retorno que no existe, y además no es causal |
+| remuestreo semanal | `ac100_absoluto` 0,083 → −0,034 y los bloques disjuntos caen de 69 a ~14 |
+
+El caso de la winsorización al 1 % es el decisivo y el menos intuitivo: tras
+aplicarla, **el mercado tendría colas más finas que el modelo baratísimo contra el
+que se supone que hay que compararlo**, y el notebook 05 "refutaría" la premisa del
+trabajo por un artefacto de preprocesado. Además, ajustar los cortes sobre la
+muestra completa sería fuga; ajustados solo con train seguirían censurando 18
+observaciones de test, que D7 obliga a mantener 100 % reales.
+
+**Dos naturalezas, no dos grados.** Los cinco primeros controles —tipos, índice,
+finitud, positividad, degeneradas— son **invariantes**: cosas imposibles en datos
+correctos, silenciosas aguas abajo, y lanzan excepción desde `datos.alinear()`. Un
+solo cierre puesto a cero evapora 61 ventanas y deja `drawdown_sp500` en −1,0 sin
+que nada avise. Los otros cinco —congelados, saltos, calendario, densidad,
+cobertura— son **avisos** y nunca abortan, porque lo inverosímil aquí a veces es
+cierto: el mayor movimiento del panel es un VIX de +115,6 % el 5 de febrero de
+2018, y es un dato bueno. Un control que aborta sobre datos buenos enseña al
+equipo a subir el umbral.
+
+**Lo que no se comprueba, y por qué.** Nada de tests de normalidad ni de
+estacionariedad como puerta de calidad: rechazarían con p≈0 por construcción,
+porque la no normalidad **es el hallazgo del proyecto**, no el defecto. Tampoco
+umbral porcentual fijo para los saltos —836 observaciones superan el 10 % y casi
+todas son correctas—, sino z robusto por columna, que se autoescala al VIX.
+
+**Excepción declarada.** La única aparición legítima de la winsorización en este
+repositorio es como *baseline de comparación* del jitter en el notebook 12, y allí
+los cortes se ajustan solo con train.
