@@ -1,0 +1,18 @@
+{
+  "arquitectura": {
+    "filtros": [],
+    "tamano_kernel": 3,
+    "unidades_densa": 0,
+    "dropout": 0.3,
+    "tasa_aprendizaje": 0.001,
+    "agregacion": "aplanado"
+  },
+  "presupuesto": {
+    "epocas": 60,
+    "tam_lote": 256,
+    "paciencia": 12,
+    "monitor": "balanced_accuracy",
+    "monitor_volatilidad": "val_mae"
+  },
+  "huella": "df79bcab4ed6"
+}

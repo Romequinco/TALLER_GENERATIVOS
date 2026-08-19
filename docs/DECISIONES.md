@@ -109,15 +109,33 @@ poder discriminante.
 cinco semillas y se conserva el de mayor log-verosimilitud.
 
 **Por qué tres y no dos.** Con dos estados el corte calma/crisis deja una clase
-minoritaria de en torno al 37 %, demasiado poblada para que el desbalance sea el
-problema central. Con tres, el estado extremo queda en el **16,1 %** y separa la
-tensión genuina de la simple transición.
+minoritaria demasiado poblada para que el desbalance sea el problema central. La
+única cifra de la que dispone el proyecto es el **25,3 %** que
+`metodologia/etiquetado_regimenes.md` §7.5 recoge del HMM de dos estados del TFM
+—otro panel, 2007-2026 y siete features—: **ningún cuaderno de este repositorio
+ajusta un HMM de dos estados**, así que el 25,3 % es un anclaje externo y no una
+medición propia. Con tres, el estado extremo queda en el **15,8 %** medido aquí y
+separa la tensión genuina de la simple transición.
 
 **Tres features de etiquetado, no cinco.** La versión inicial usaba `ret_sp500`,
 `vol_realizada_z`, `vix_nivel_z`, `drawdown_sp500` y `spread_credito_z`. **Suspende
-el control bloqueante del notebook 01**: la clase de crisis sale al 39 % y el
-modelo marca **2021 entero** como crisis, el año en que el S&P 500 subió un 26,9 %
-con volatilidad del 13 %.
+el control bloqueante del notebook 01**, y conviene ser exacto sobre por dónde,
+porque no es por donde se esperaría:
+
+- El **peso de la clase de crisis sale al 19,0 %**, dentro de la banda de
+  aceptación [3 %, 20 %]: **ese control pasa**. Lo hace pegado al techo, que ya es
+  un aviso, pero pasa.
+- Lo que suspende es la **cobertura del episodio de Inflación 2022: 44,0 % frente
+  al 50 % exigido**. Con las tres features se va al 56,5 %. GFC 2008 (100 %) y
+  COVID 2020 (96 %) los cubren las dos versiones.
+- Y el estado extremo se enciende donde no debe: el **40 % de las sesiones de
+  2021** quedan marcadas como crisis, el año en que el S&P 500 subió un 26,9 % con
+  volatilidad del 13 %. No es el año entero, pero son cuatro de cada diez sesiones
+  de un mercado alcista y tranquilo.
+
+Los tres hechos apuntan en la misma dirección, y ninguno de ellos lo habría
+delatado el peso de la clase mirado por su cuenta: el control que suspende es el
+de cobertura.
 
 La causa es que un HMM gaussiano supone emisiones normales y estacionarias dentro
 de cada estado, y dos de las cinco lo incumplen: `spread_credito_z` **deriva**
@@ -127,11 +145,18 @@ las sesiones en el 5 % superior de su recorrido. Con ellas dentro, el estado
 extremo deja de significar "mercado en tensión" y pasa a significar "estamos
 después de 2020".
 
-Retirándolas, la crisis baja al 16,1 %, el control pasa, y —lo que pesa más— el
-ajuste deja de depender de la inicialización: las 20 semillas probadas convergen a
-la misma solución, mientras que con las cinco el segundo óptimo local daba un
-21,2 % y habría suspendido. Un etiquetado que cambia de significado según la
-semilla no sirve como variable objetivo. Las dos descartadas siguen en el catálogo
+Retirándolas, la crisis queda en el 15,8 %, la cobertura de 2022 sube al 56,5 % y
+los cuatro controles pasan. El ajuste tampoco depende de la inicialización: las
+**cinco semillas del catálogo** (`semillas: [42, 43, 44, 45, 46]`, de las que se
+conserva la de mayor log-verosimilitud) convergen a la misma solución, con
+log-verosimilitud 9.418,7 en train y 163 iteraciones del EM. Un etiquetado que
+cambiara de significado según la semilla no serviría como variable objetivo.
+
+Una versión anterior de esta decisión hablaba de "20 semillas probadas" y de un
+segundo óptimo local que con las cinco features daba un 21,2 %. Ni una ni otra
+cifra las reproduce ningún notebook de este repositorio —el catálogo ejecuta
+cinco semillas, no veinte—, así que se retiran en vez de dejarlas como argumento
+no verificable. Las dos descartadas siguen en el catálogo
 bajo `features_descartadas`, porque el notebook 01 reconstruye con ellas el ajuste
 rechazado: la comparación **es** el argumento.
 
@@ -163,7 +188,7 @@ invalidado el experimento.
 Se corrige contando el embargo en **posiciones del índice de mercado**. El valor
 85 no cambia; cambia la unidad en que se lee, y el campo pasa a llamarse
 `embargo_sesiones`. La alternativa —subir los días naturales hasta que el hueco
-salga— se descarta con datos: 119 días **no llegan al mínimo en el 2,5 % de las
+salga— se descarta con datos: 119 días **no llegan al mínimo en el 2,0 % de las
 fechas de corte posibles** del panel y 125 descartan más ventanas que la opción
 en sesiones. Un embargo que funciona según dónde caigan los festivos es una
 coincidencia, no una garantía. `partir` ahora lanza si el embargo es menor que el
@@ -180,8 +205,14 @@ mencionar en la defensa: no es una crítica al ejemplo, que persigue ilustrar el
 mecanismo, sino la razón por la que nuestras cifras no son comparables con las
 suyas y sí son defendibles.
 
-**Valor del embargo.** El mínimo teórico es `60 + 21 = 81`; se adopta 85 por
-margen.
+**Valor del embargo.** La huella de una ventana son `60 + 21 = 81` sesiones, pero
+el mínimo del embargo es **80**, no 81: una ventana que empieza en `t` usa datos
+hasta `t + pasado + horizonte - 1`, así que el solape máximo entre dos ventanas es
+`60 + 21 - 1 = 80`. Es lo que devuelve `ventanas.solape_maximo` y es contra lo que
+valida `ventanas.partir`. Los dos números conviven sin contradicción porque
+descartar E ventanas abre un hueco de E+1 sesiones entre particiones, así que
+exigir un hueco de 81 sesiones o más es exigir un embargo de 80 o más. Se adopta
+85, cinco de margen.
 
 ---
 
@@ -246,7 +277,7 @@ Por eso sería un error enunciar "el generador gaussiano no puede reproducir las
 colas ni el agrupamiento": eso vale para una gaussiana única, que no es lo que
 este repositorio implementa, y el notebook 05 nos refutaría. El estadístico que
 **sí** separa a la mezcla del mercado es la curtosis de los residuos
-estandarizados: 7,3 reales con banda [5,7 – 11,2], frente a 3,4 de la mezcla. Es
+estandarizados: 7,2 reales con banda [5,6 – 10,3], frente a 3,4 de la mezcla. Es
 sobre esa fila sobre la que el notebook 00 enuncia su hipótesis falsable.
 
 ---
@@ -316,6 +347,21 @@ frecuencia y sin ningún dato sintético.
 la pérdida iguala al mejor generador, los datos sintéticos no aportan nada que
 no se consiguiera con una línea de código, y el trabajo honesto es decirlo.
 
+**Dos fallos silenciosos que ahora lanzan.** La comparación solo vale si de
+verdad se aplicó lo que se dice haber aplicado, y había dos maneras de creer que
+sí sin que nada avisara:
+
+- `pesos_por_clase` devolvía peso **`0.0`** para una clase sin muestras. Un `0.0`
+  se lee como "esta clase no importa" cuando lo que significa es "esta clase no
+  está", y Keras lo acepta sin decir nada: se entrenaba, sin un solo aviso, un
+  modelo que nunca predice crisis, que es exactamente el fallo que mide el
+  trabajo. Una clase vacía es un defecto de la receta de mezcla, no un caso de
+  uso, y ahora lanza `ValueError`.
+- `usar_pesos=True` sobre la tarea de **volatilidad** era un **no-op silencioso**:
+  la regresión no tiene `class_weight`, así que el argumento se ignoraba y quien
+  escribiera la variante reponderada de la tarea de control creería haberla
+  aplicado y habría publicado dos veces el mismo experimento. Ahora lanza.
+
 ---
 
 ## D16 · Test de memorización obligatorio
@@ -347,9 +393,23 @@ puede ganar en las métricas de parecido y aun así no aportar información nuev
 **Decisión.** Se reporta F1-macro, balanced accuracy y recall de la clase de
 crisis. El accuracy se incluye solo por completitud.
 
-**Por qué.** Con la clase de crisis en torno al 10 %, un modelo que nunca la
-prediga acierta el 90 %. El accuracy no distingue ese modelo inútil de uno
-valioso.
+**Por qué.** La clase de crisis pesa un **15,9 % en train y un 10,5 % en test**,
+así que un modelo que nunca la prediga acierta en torno al 90 % del test. El
+accuracy no distingue ese modelo inútil de uno valioso.
+
+**Y la que selecciona no es la que se reporta primero.** La prevalencia de crisis
+en **validación es del 22,0 %, más del doble que en test (10,5 %)**, porque el
+tramo de validación contiene el COVID. Ese desplazamiento de prevalencia es la
+razón por la que la métrica que **elige** la arquitectura es la **balanced
+accuracy** y no el f1-macro: medido sobre la rejilla de candidatas, al pasar de la
+prevalencia de validación a la de test el f1-macro se mueve entre **-0,013 y
++0,044** según lo liberal que sea el modelo con la clase de crisis, e **invierte
+el orden del 8,1 % de los pares** de candidatas; la balanced accuracy es
+exactamente invariante, porque es la media de los recalls por clase y un recall no
+depende de cuántas muestras haya de esa clase. Elegir con f1-macro sobre una
+validación con doble prevalencia de crisis que el test es elegir con una regla que
+sabemos que se rompe al cambiar de tramo. El f1-macro se sigue reportando en la
+tabla; simplemente no decide.
 
 ---
 
@@ -381,34 +441,176 @@ mejor generador posible de cada familia.
 
 ---
 
-## D20 · Una sola arquitectura downstream, congelada
+## D20 · Una sola arquitectura downstream, congelada, y gana la que no convoluciona
 
-**Decisión.** La CNN 1D se busca en el notebook 03 con datos reales y no se
-vuelve a tocar.
+**Decisión.** La arquitectura se busca en el notebook 03 con datos reales entre
+**seis candidatas**, se elige sobre **validación** y no se vuelve a tocar. Queda
+escrita, con su presupuesto y su huella, en `models/downstream/arquitectura.json`.
 
 **Por qué.** Lo exige el enunciado y es lo único que hace honesta la
 comparación: si la arquitectura cambiara entre versiones, no se sabría si la
 diferencia viene de los datos o del modelo.
 
-**Control adicional.** El presupuesto de optimización (épocas y criterio de
-parada temprana) también se fija, para no confundir "más entrenamiento" con
-"mejores datos".
+**Cómo se busca.** Cada candidata mueve **un solo eje** respecto a `cnn_base`, para
+que el resultado se pueda defender: `lineal` quita la convolución entera y es el
+control de si aporta algo; `cnn_pequena` y `cnn_ancha` mueven la capacidad;
+`cnn_kernel7` el campo receptivo; `cnn_pool_global` la agregación temporal. Tres
+semillas por candidata, porque con una sola corrida la dispersión no se puede medir
+y sin dispersión no se puede afirmar que una gane.
+
+**Criterio de selección: `balanced_accuracy`, no f1-macro.** Ver D17: validación
+tiene un 22,0 % de crisis y test un 10,5 %, y bajo ese salto de prevalencia el
+f1-macro invierte el orden del 8,1 % de los pares mientras la balanced accuracy es
+exactamente invariante. Desempate por `recall_crisis` con margen 0,005 y, si tampoco
+separa, gana la más barata (D19).
+
+**Resultado medido, y es incómodo.** Balanced accuracy sobre validación:
+
+| candidata | bal. acc. | desv. entre semillas | parámetros | s/época |
+|---|---|---|---|---|
+| **`lineal`** | **0,6956** | 0,0081 | **3.603** | **0,41** |
+| `cnn_kernel7` | 0,6917 | 0,0122 | 271.315 | 3,84 |
+| `cnn_base` | 0,6849 | 0,0391 | 167.891 | 2,48 |
+| `cnn_ancha` | 0,6845 | 0,0092 | 533.123 | 6,99 |
+| `cnn_pequena` | 0,6681 | 0,0168 | 69.859 | 0,85 |
+| `cnn_pool_global` | 0,6617 | 0,0203 | 91.091 | 2,88 |
+
+**`lineal` y `cnn_kernel7` caen dentro de una desviación entre semillas: no están
+separadas por nada**, y las dos siguientes se quedan a 0,0107 y 0,0111. La que
+encabeza es una multinomial sobre la ventana aplanada, con 148 veces menos
+parámetros que `cnn_ancha` y diecisiete veces menos tiempo por época. No es una
+anomalía: con **45 bloques independientes** en train (ver D21) la convolución no
+tiene de dónde sacar ventaja. Se congela `lineal`.
+
+**Y el empate depende de la tarea, no de los datos.** Reentrenando las mismas
+candidatas para predecir el régimen de **hoy** en vez del dominante a 21 días, la
+comparación se invierte: `cnn_ancha` llega a 0,808 de balanced accuracy y `lineal`
+se queda en 0,682, doce puntos por debajo. Es decir, la convolución sí sirve cuando
+el objetivo está bien condicionado; lo que no sirve es contra una etiqueta a 21 días
+sobre 45 observaciones independientes. Ese contraste es el argumento de por qué el
+suspenso del control bloqueante (D21) es un problema de formulación y no de datos.
+
+**El presupuesto también se congela**, y vive en `downstream.Presupuesto`: 60
+épocas, lote 256 (D22), paciencia 12 y **parada por `balanced_accuracy` de
+validación**, no por `val_loss`. Ese último punto no es cosmético y está medido
+sobre los **22 entrenamientos** que el cuaderno 03 deja en
+`results/historiales/*.csv`, y que su última celda recorre: parar por `val_loss`
+en vez de por la métrica que decide cuesta **1,8 puntos de balanced accuracy de
+media** y hasta **6,6 puntos** en el peor caso (`cnn_kernel7`, semilla 2). En la
+arquitectura congelada, el mínimo de `val_loss` cae en la época 38 y el máximo de
+balanced accuracy en la 55: **2,6 puntos**. La causa es que la entropía cruzada de
+validación está dominada por el desajuste de prevalencias entre train (54,6 %
+calma) y validación (59,7 % transición), no por lo que el modelo aprende. La
+métrica que decide tiene que ser la métrica que para.
+
+Una versión anterior de esta decisión publicaba un mínimo de `val_loss` en la
+**época 1** frente a un máximo de balanced accuracy en la **5**, con un coste de
+**8,5 puntos**. Esa medición sale de un experimento auxiliar con `cnn_ancha` y
+pérdida reponderada que **no está en el repositorio** y **no es reproducible desde
+los historiales**, así que se retira y se sustituye por la de arriba, que sí sale
+de CSV versionados. El argumento de fondo no cambia: lo que hace inservible a
+`val_loss` es el desajuste de prevalencias, y eso se mide igual en los 22
+historiales.
+
+**Por qué se persiste en disco y no solo en el código.** El notebook 12 llamaba a
+`construir()` sin argumentos y heredaba el valor por defecto del **código fuente**:
+si alguien editaba el módulo entre el 03 y el 12, nada lo detectaba y los 570
+entrenamientos quedaban contaminados en silencio. Ahora `cargar_congelada()` lee el
+JSON y valida su huella.
+
+**Consecuencia sobre el coste.** Que la ganadora sea la barata cambia el
+dimensionado del barrido, y las dos magnitudes hay que tomarlas **de la ganadora**,
+no una de ella y otra de la media de las seis: a 0,43 s por época y **51,0 épocas
+efectivas medias** —las de `lineal` en la búsqueda; consumió 60 en su entrenamiento
+real—, los siete generadores del notebook 12 salen por **4,4 h** y los cuatro del
+núcleo mínimo por **2,5 h**. La media de las seis candidatas, 24,2 épocas, está
+dominada por las CNN, que paran entre la 15 y la 22, y usarla con los segundos de
+`lineal` subestimaba el coste a la mitad. Con `cnn_ancha` habrían sido diecisiete
+veces más los segundos por época, y la decisión de recortar generadores habría sido
+inevitable.
 
 ---
 
-## D21 · Línea base de persistencia
+## D21 · Líneas base: la persistencia causal es la barra, y viene con banda
 
-**Decisión.** Toda métrica de la tarea de régimen se compara contra el
-predictor trivial "el régimen futuro será el mismo que el actual".
+**Decisión.** Toda métrica de la tarea de régimen se compara contra el predictor
+trivial "el régimen futuro será el mismo que el actual", **decodificado con el
+filtro causal**, y se publica con un intervalo de confianza por **bootstrap de
+bloques**, no con la cifra suelta.
 
-**Por qué.** Los regímenes son muy persistentes: las probabilidades de
-permanencia en la diagonal de la matriz de transición del HMM rondan 0.94-0.98.
-Eso convierte a la persistencia en una línea base fortísima. Un clasificador que
-no la bata no está prediciendo nada: se está limitando a leer el estado
-presente, que es un problema distinto y mucho más fácil.
+**Por qué la persistencia es una barra alta.** Los regímenes son muy
+persistentes: la diagonal de la matriz de transición del HMM ajustado vale
+**0,987 · 0,970 · 0,986** (calma, transición, crisis). Con esas probabilidades de
+permanencia, "mañana como hoy" acierta casi siempre, y un clasificador que no la
+bata no está prediciendo nada: se está limitando a leer el estado presente, que es
+un problema distinto y mucho más fácil.
+
+**Sobre qué muestra se mide.** El notebook 01 publica la persistencia sobre la
+**muestra completa** —accuracy 0,821 y recall de crisis 0,821—, que está dominada
+por train. Esa cifra es un diagnóstico del etiquetado, **no** la barra del
+experimento. La barra se mide donde se evalúa el modelo, que es **test**. Confundir
+las dos es el error fácil de esta decisión, porque la cifra bonita está en la
+muestra que no toca.
+
+**Con qué decodificador, que es donde estaba el problema de fondo.**
+`hmmlearn.predict` es **Viterbi**: nombra el régimen de hoy buscando la secuencia
+de estados más probable **mirando la serie entera, futuro incluido**. Para
+construir la etiqueta objetivo eso es legítimo —la etiqueta *es* el futuro—, pero
+como predictor no lo es: no es un modelo, es un oráculo sobre el proceso que
+fabrica la etiqueta. El decodificador honesto es el **filtro forward**, que usa
+información hasta `t` y ni un día más; está implementado en
+`EtiquetadorRegimenes.predict_causal`. Sobre test:
+
+| línea base (test) | accuracy | f1-macro | recall crisis | precisión crisis |
+|---|---|---|---|---|
+| `persistencia_causal` (la barra) | 0,772 | 0,754 | 0,800 | 0,638 |
+| `persistencia_viterbi` (usa el futuro) | 0,805 | 0,790 | 0,800 | 0,715 |
+
+La balanced accuracy de la causal, que es la métrica con la que D17 selecciona
+arquitectura, vale **0,777** sobre test: ese es el número contra el que se lee el
+notebook 03.
+
+Las dos decodificaciones difieren en **321 de 5.670 sesiones (5,66 %)**, y el
+filtro causal marca 924 sesiones de crisis frente a las 901 de Viterbi. El detalle
+que hay que saber decir en la defensa es que **el recall de crisis es 0,800 con
+las dos**: toda la ventaja de Viterbi está en la **precisión** (0,715 frente a
+0,638), porque el futuro le dice cuáles de las alarmas eran falsas. Publicar
+Viterbi como barra regalaría 3,6 puntos de f1-macro a cualquier modelo que se
+compare con ella.
+
+**Cuál se publica.** La oficial es la **causal**. La de Viterbi se publica al lado,
+marcada como no alcanzable por un modelo causal: `evaluacion.lineas_base` devuelve
+una columna booleana `usa_futuro` que existe exactamente para eso.
+
+**Las otras tres líneas base y por qué están.** `evaluacion.lineas_base` produce
+además `mayoritaria_train` (accuracy 0,330, recall de crisis 0,000),
+`azar_estratificado` (0,364 / 0,160) y `siempre_crisis` (accuracy 0,105, recall de
+crisis **1,000**). Las dos primeras acotan el suelo. La tercera está por una razón
+distinta y deliberada: impedir que un recall de crisis alto se presente como un
+logro sin mirar la precisión. "Predice siempre crisis" tiene el recall máximo
+posible y es inútil. Cualquier lectura de `recall_crisis` que no mire a la vez
+`precision_crisis` y `f1_macro` está reproduciendo esa trampa.
+
+**La banda, que es la parte que decide qué comparaciones son legítimas.** Las 110
+ventanas de crisis del test **no son 110 observaciones independientes**: son **3
+rachas contiguas** (`regimenes.tramos_contiguos` las cuenta; en train son 587
+ventanas en 8 rachas y en validación 148 en 2). Tratarlas como independientes
+estrecha el intervalo de forma artificial. `evaluacion.banda_bloques` mide el
+recall de crisis de 0,800 con **IC 95 % [0,560 – 1,000]** por bootstrap de bloques
+circular de longitud 81 —la huella exacta de una ventana, el mismo 81 del que sale
+el embargo de D7—, frente al **[0,716 – 0,864]** del intervalo binomial de Wilson
+que las trataría como independientes: el honesto es **3,0 veces más ancho**. El
+límite superior satura en 1,000 porque hay una racha entera con recall perfecto.
+
+**Consecuencia operativa, que hay que escribir en el informe y no solo aquí:
+ninguna comparación de recall de crisis entre dos recetas del notebook 12 que
+difiera en menos de unos 20 puntos es distinguible del ruido.** Ordenar la tabla
+de resultados por esa columna y quedarse con la primera fila es quedarse con el
+ruido más afortunado.
 
 **Consecuencia para el análisis.** Las mejoras por datos sintéticos se reportan
-sobre el margen respecto a la persistencia, no sobre el cero absoluto.
+como margen respecto a la persistencia causal, no sobre el cero absoluto, y
+siempre con la banda al lado.
 
 ---
 
@@ -435,29 +637,56 @@ una GAN reduce la inestabilidad del juego adversarial. Aquí no hay que
 compensar la pérdida de ruido de gradiente: con estos tamaños de dataset no
 estamos en el régimen donde ese ruido regulariza.
 
-**Aviso relacionado.** Subir el número de hilos de PyTorch por encima del número
-de núcleos **físicos** empeora los tiempos. En esta máquina, `set_num_threads(4)`
-sobre 2 núcleos físicos es más lento que dejarlo por defecto.
+**El modelo downstream también, y con su propia medición.** La regla anterior se
+midió sobre los generadores; el downstream faltaba, y es donde se gastan las horas
+del barrido. Sobre las 3.696 ventanas de train, con validación: lote 64 cuesta
+**3,30 s/época**, lote 256 **2,43** y lote 512 **2,34**. **Se adopta 256**, y no
+512, porque ya recoge la mayor parte de la mejora sin dividir aún más el número de
+actualizaciones de gradiente por época.
+
+**Sobre los hilos: no se toca, y no por lo que decía antes.** Una versión anterior
+afirmaba que `set_num_threads(4)` sobre 2 núcleos físicos es *más lento* que el
+valor por defecto. Lo medido en `src/config.py`, sobre el modelo downstream con
+lote 256, es **2,61 s/época con el valor por defecto frente a 2,54 s/época
+forzando 4**: está dentro del ruido entre repeticiones, no es más lento. La razón
+real para no tocar `torch.set_num_threads` es otra y es doble: forzarlo **no mejora
+de forma medible**, y **no sería portable**, porque `os.cpu_count()` devuelve los
+núcleos lógicos y detectar los físicos exigiría una dependencia que no está en
+`requirements.txt`. Añadir un paquete para no ganar nada medible es un mal
+cambio.
 
 ---
 
 ## D23 · Los datos se auditan, no se limpian
 
-**Decisión.** El panel pasa diez controles de integridad en `src/calidad.py`, y
+**Decisión.** El panel pasa once controles de integridad en `src/calidad.py`, y
 **no se le aplica ninguna técnica de limpieza**: ni imputación, ni winsorización,
 ni recorte de valores atípicos, ni suavizado, ni remuestreo.
 
 **Por qué.** No es purismo: las técnicas habituales destruyen justo lo que el
-trabajo mide. Medido sobre este panel:
+trabajo mide. Medido sobre este panel en un banco de pruebas aparte, con la
+salvedad que va al pie de la tabla:
 
 | técnica | efecto medido |
 |---|---|
 | `ffill` **(A)** sobre rejilla hábil | +222 sesiones inventadas (+3,7 %), los retornos nulos de `sp500` pasan de 3 a 225 y la volatilidad realizada se sesga −2,0 % |
 | winsorizar al 1 % | curtosis 16,5 → **6,4**, por debajo de la banda bootstrap del propio panel [7,3 – 21,5] **y por debajo del 8,0 que produce nuestro propio generador gaussiano** |
-| winsorizar al 5 % | `curtosis_residuos` 7,3 → **5,3**, por debajo de la banda [5,7 – 11,2]: **H1 se vuelve falsa sobre los datos reales y todo generador queda automáticamente no refutado** |
+| winsorizar al 5 % | `curtosis_residuos` 7,3 → **5,3**, por debajo de la banda [5,6 – 10,3]: **H1 se vuelve falsa sobre los datos reales y todo generador queda automáticamente no refutado** |
 | recortar el 1 % extremo | 67 % de las 58 bajas caen en 2008 y 2020, y abre un hueco de 13 días naturales en marzo de 2020 que dispara el control de contigüidad ya existente |
 | media móvil centrada de 3 | `ac1_retorno` −0,117 → **+0,610**: fabrica predictibilidad del retorno que no existe, y además no es causal |
-| remuestreo semanal | `ac100_absoluto` 0,083 → −0,034 y los bloques disjuntos caen de 69 a ~14 |
+| remuestreo semanal | `ac100_absoluto` 0,083 → −0,034 y los bloques disjuntos caen de 70 a ~14 |
+
+**De dónde sale esta tabla, y qué no es.** Las seis filas se midieron sobre este
+panel en un banco de pruebas que **no se conserva en el repositorio**: **ningún
+cuaderno del 00 al 14 las recalcula**, así que **no están reproducidas aquí** y no
+deben citarse como salida de una celda. Lo que sí es reproducible es el punto de
+partida contra el que se leen: el cuaderno 00 publica la curtosis de los residuos
+estandarizados del panel vigente, **7,2** con banda **[5,6 – 10,3]**, mientras la
+fila de la winsorización al 5 % arrastra el 7,3 de una ejecución anterior a la
+corrección (B) de más abajo. El argumento se mantiene entero —cada una de estas
+técnicas destruye justamente lo que el trabajo mide, y ninguna decisión del
+proyecto depende de su tercera cifra—, pero si alguna hiciera falta en la defensa
+hay que rehacerla en un cuaderno antes de enseñarla.
 
 El caso de la winsorización al 1 % es el decisivo y el menos intuitivo: tras
 aplicarla, **el mercado tendría colas más finas que el modelo baratísimo contra el
@@ -508,8 +737,9 @@ lo que impide que se use sin verlo.
 finitud, positividad, degeneradas— son **invariantes**: cosas imposibles en datos
 correctos, silenciosas aguas abajo, y lanzan excepción desde `datos.alinear()`. Un
 solo cierre puesto a cero evapora 61 ventanas y deja `drawdown_sp500` en −1,0 sin
-que nada avise. Los otros cinco —congelados, saltos, calendario, densidad,
-cobertura— son **avisos** y nunca abortan, porque lo inverosímil aquí a veces es
+que nada avise. Los otros seis —congelados, saltos, calendario, densidad,
+cobertura y el `relleno` que añade esta decisión— son **avisos** y nunca abortan,
+porque lo inverosímil aquí a veces es
 cierto: el mayor movimiento del panel es un VIX de +115,6 % el 5 de febrero de
 2018, y es un dato bueno. Un control que aborta sobre datos buenos enseña al
 equipo a subir el umbral.
@@ -523,3 +753,60 @@ todas son correctas—, sino z robusto por columna, que se autoescala al VIX.
 **Excepción declarada.** La única aparición legítima de la winsorización en este
 repositorio es como *baseline de comparación* del jitter en el notebook 12, y allí
 los cortes se ajustan solo con train.
+
+---
+
+## D24 · Política de indefinidos, piso del QLIKE y referencia del R2
+
+**Decisión.** Tres reglas sobre cómo se calculan las métricas que llenan la tabla
+del notebook 12. Estaban solo en los docstrings de `src/evaluacion.py`, y afectan
+a todas las filas de la tabla de resultados, así que se registran aquí.
+
+**1. Lo que no se puede medir es NaN, no cero.** Antes, `zero_division=0` hacía
+que el recall de crisis valiera 0,0 cuando el conjunto evaluado no contenía
+ninguna ventana de crisis. Un 0,0 así es indistinguible del 0,0 de un modelo que
+las falla todas, que es un juicio completamente distinto; y además contradecía al
+propio control de integridad del notebook 12, que busca NaN y por tanto **no podía
+dispararse nunca**. Ahora:
+
+- el recall de crisis es **NaN** si el conjunto no tiene crisis,
+- la precisión de crisis es **NaN** si el modelo no predijo ninguna,
+- y se emite `soporte_crisis`, el número de ventanas de crisis del conjunto
+  evaluado, que no es una métrica sino lo que dice si las demás significan algo.
+
+Las dos métricas macro promedian sobre las clases presentes en la verdad, que es
+la convención de `balanced_accuracy_score`. Esto importa en el eje de escasez de
+D13: con submuestras de 250 reales es perfectamente posible quedarse sin crisis en
+un conjunto, y ahí la diferencia entre "no había nada que medir" y "el modelo
+falla todo" es la diferencia entre una fila descartable y una conclusión.
+
+**2. El QLIKE es frágil y hay que decirlo.** Es la pérdida estándar en previsión
+de volatilidad, y se usa porque penaliza más infraestimar el riesgo que
+sobreestimarlo, que es la asimetría correcta en gestión de riesgo. Pero diverge
+cuando la predicción se acerca a cero, y con el recorte anterior a `1e-6` eso lo
+volvía inservible para rankear: con `y_real` en torno a 0,151 y 1.052 muestras de
+test, un sesgo del −10 % en **todas** las predicciones daba QLIKE **0,0058**,
+mientras que **una sola** predicción negativa daba **143,5**. Un único valor
+recortado pesaba unas 25.000 veces más que equivocarse un 10 % en todo el
+conjunto: el ranking de generadores por QLIKE habría sido el ranking de cuántos
+negativos escupió cada red, que no es lo que se quiere comparar. Peor todavía, el
+contador de diagnóstico miraba `y_pred <= 0` y **no contaba las predicciones entre
+0 y 1e-6**, que se recortan igual, de modo que el caso más dañino se producía en
+silencio. Ahora el piso es **relativo a la escala de la variable**
+(`FRACCION_PISO_QLIKE * mediana(y_real)`) y el contador cuenta exactamente lo que
+toca el piso. Sobre el test real, una predicción recortada pasa de aportar 267,1 a
+aportar 0,0163, el mismo orden que el sesgo del 10 %. El piso hace la métrica
+comparable entre recetas; **no** borra el problema, así que hay que mirar el
+contador antes de leer la columna.
+
+**3. El R2 tenía un oráculo dentro.** Se calculaba contra la media del propio
+conjunto de test. Esa media nadie la conoce al desplegar, y además no es
+comparable entre recetas, porque cada una cambia el denominador con el que se
+juzga. Ahora se puede pasar la **media de train** como referencia, que es el R2
+honesto: el único que mide contra lo que se podía saber de antemano.
+
+**Por qué está aquí y no solo en el código.** Las tres reglas cambian números que
+van a la tabla de resultados y a la presentación. Un tribunal que pregunte "¿por
+qué esta celda está vacía?" o "¿por qué el QLIKE de este generador es enorme?"
+tiene aquí la respuesta, y las tres respuestas son del mismo tipo: la métrica dice
+lo que puede decir y calla lo que no.

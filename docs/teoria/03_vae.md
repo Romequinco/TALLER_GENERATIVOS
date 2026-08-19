@@ -233,7 +233,7 @@ Mitigaciones parciales: aumentar $J$, reducir $\beta$, decoder con varianza apre
 
 ### 6.3 Desbalance $\beta$ por escalado inconsistente
 
-El error más común al portar el notebook. Si la reconstrucción se **suma** sobre $D$ dimensiones y el KL se **promedia** sobre $J$, el ratio efectivo entre ambos es $D\cdot J$ veces el nominal. Con $D\approx1.100$ y $J=32$ el KL queda multiplicado por un factor absurdo respecto a la formulación correcta.
+El error más común al portar el notebook. Si la reconstrucción se **suma** sobre $D$ dimensiones y el KL se **promedia** sobre $J$, el ratio efectivo entre ambos es $D\cdot J$ veces el nominal. Con $D = 1.201$ y $J=32$ el KL queda multiplicado por un factor absurdo respecto a la formulación correcta.
 
 Regla: sumar sobre dimensiones en ambos términos y promediar solo sobre el batch. Cualquier ponderación adicional debe ser explícita, con nombre `beta` y registrada en la configuración del experimento.
 
@@ -286,11 +286,11 @@ y al generar la lee de vuelta redondeando (`np.round(syntetic_labels*4.5+4.5)`).
 
 ### 8.1 El dato
 
-Cada muestra es una ventana de 60 días × ~18 canales del panel híbrido (S&P500, 9 SPDR sectoriales, VIX, MOVE, spreads de crédito, pendiente de curva, drawdown, volatilidad realizada), aplanada a $D_X\approx 1.080$. El bloque conjunto es $[\,X\,;\,y_{reg}\,;\,y_{vol}\,]$ con dimensión total $\approx 1.100$. La etiqueta $y_{reg}$ es el régimen de mercado a 21 días con 3 clases, y la clase "crisis" pesa ~10%.
+Cada muestra es una ventana de 60 días × 20 canales del panel híbrido de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro a 20 y a 10 años, crédito grado de inversión e índice dólar): once canales de retornos (índice, nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada, drawdown, momento, spread de crédito, pendiente de curva, correlación acción-bono y dispersión sectorial), aplanados a $D_X = 1.200$. El bloque conjunto es $[\,X\,;\,y_{vol}\,]$ con dimensión total $1.201$, y $y_{reg}$ va aparte, como condición. La etiqueta $y_{reg}$ es el régimen de mercado a 21 días con 3 clases, y la clase "crisis" pesa ~16 % en train (10,5 % en test).
 
-**Decisión de diseño**: el cVAE se condiciona a $y_{reg}$ (one-hot, $K=3$) y el decoder reconstruye $[\,X\,;\,y_{vol}\,]$, dimensión $D\approx1.081$. No tiene sentido reconstruir $y_{reg}$ cuando ya se está condicionando a ella. Para mantener la interfaz común con los demás generadores del taller, al escribir el dataset sintético se reinserta como $y_{reg}$ el one-hot de condicionamiento (que es exacto, no ruidoso). Esto es una ventaja neta frente al enfoque de bloque conjunto del notebook de GAN.
+**Decisión de diseño**: el cVAE se condiciona a $y_{reg}$ (one-hot, $K=3$) y el decoder reconstruye $[\,X\,;\,y_{vol}\,]$, dimensión $D = 1.201$. No tiene sentido reconstruir $y_{reg}$ cuando ya se está condicionando a ella. Para mantener la interfaz común con los demás generadores del taller, al escribir el dataset sintético se reinserta como $y_{reg}$ el one-hot de condicionamiento (que es exacto, no ruidoso). Esto es una ventaja neta frente al enfoque de bloque conjunto del notebook de GAN.
 
-**Preprocesado**: z-score por canal con media y desviación calculadas **solo sobre el tramo de entrenamiento**, para no filtrar información del futuro. Partición temporal, sin barajar, con purga de al menos $60+21=81$ días entre train y validación porque las ventanas se solapan y el horizonte de la etiqueta es de 21 días. Sin esa purga, la validación está contaminada y las curvas de la sección 5 mienten. Si $y_{vol}$ es volatilidad realizada (positiva y asimétrica), transformar a $\log$ antes de estandarizar.
+**Preprocesado**: z-score por canal con media y desviación calculadas **solo sobre el tramo de entrenamiento**, para no filtrar información del futuro. Partición temporal, sin barajar, con embargo contado en sesiones de mercado entre train y validación porque las ventanas se solapan y el horizonte de la etiqueta es de 21 días: la huella de una ventana es $60+21=81$ sesiones, el mínimo que neutraliza el solape es 80 y el valor adoptado es **85 sesiones**. Sin esa purga, la validación está contaminada y las curvas de la sección 5 mienten. Si $y_{vol}$ es volatilidad realizada (positiva y asimétrica), transformar a $\log$ antes de estandarizar.
 
 ### 8.2 Verosimilitud de reconstrucción: gaussiana/MSE, no Bernoulli/BCE
 
@@ -314,7 +314,7 @@ cuyo segundo término es constante respecto a $\theta,\phi$ y se descarta. Queda
 2. La varianza asumida del decoder **es** el hiperparámetro $\beta$. Minimizar $\frac{1}{2\sigma_x^2}\mathrm{SSE}+D_{KL}$ es equivalente a minimizar $\mathrm{SSE}+\beta\,D_{KL}$ con $\beta=2\sigma_x^2$. No son dos hiperparámetros, es uno. Conviene parametrizar directamente $\beta$ y documentar qué $\sigma_x$ implica.
 3. Con datos estandarizados, $\sigma_x\approx 1$ (es decir $\beta\approx 2$) es el punto de partida razonable, pero solo si el residuo típico es del orden de la unidad. En la práctica el residuo es bastante menor y $\beta$ acaba en el rango 0,5–5. Se calibra observando las tres curvas de la sección 5, no a ciegas.
 
-**Órdenes de magnitud.** Con $D\approx1.081$ y $J=32$: la reconstrucción sumada arranca en $\sim10^3$ y baja a $\sim10^2$; el KL vive en $10^0$–$10^2$ nats. La reconstrucción domina la loss total por uno o dos órdenes de magnitud, de ahí que la curva total sea prácticamente la de reconstrucción y no sirva para diagnosticar el KL. Refuerza la exigencia de la sección 5.
+**Órdenes de magnitud.** Con $D = 1.201$ y $J=32$: la reconstrucción sumada arranca en $\sim10^3$ y baja a $\sim10^2$; el KL vive en $10^0$–$10^2$ nats. La reconstrucción domina la loss total por uno o dos órdenes de magnitud, de ahí que la curva total sea prácticamente la de reconstrucción y no sirva para diagnosticar el KL. Refuerza la exigencia de la sección 5.
 
 > Ampliación (no cubierto en clase): dos refinamientos posibles de la verosimilitud.
 >
@@ -324,7 +324,7 @@ cuyo segundo término es constante respecto a $\theta,\phi$ y se descarta. Queda
 
 ### 8.3 Dimensión latente y capacidad
 
-Con $D\approx1.081$, $J$ entre 16 y 32 es el rango razonable. Los 60×18 canales están fuertemente correlacionados (los 9 sectores comparten el factor mercado, VIX y volatilidad realizada son casi redundantes) y la dimensión intrínseca efectiva del panel es mucho menor que 1.081. Elegir $J$ con evidencia: entrenar con $J=32$ y contar unidades activas (§5.2). Si solo 12 son activas, $J=16$ es suficiente y reduce el riesgo de colapso parcial.
+Con $D = 1.201$, $J$ entre 16 y 32 es el rango razonable. Las 60×20 columnas están fuertemente correlacionadas (los 9 sectores comparten el factor mercado, VIX y volatilidad realizada son casi redundantes) y la dimensión intrínseca efectiva del panel es mucho menor que 1.201. Elegir $J$ con evidencia: entrenar con $J=32$ y contar unidades activas (§5.2). Si solo 12 son activas, $J=16$ es suficiente y reduce el riesgo de colapso parcial.
 
 ### 8.4 Evaluación de las muestras
 
@@ -349,7 +349,7 @@ La loss no basta. Antes de alimentar el downstream hay que comprobar, por clase 
 
 Las curvas de `d_loss` y `g_loss` del notebook de GAN de clase ilustran el problema: oscilan indefinidamente y no permiten afirmar que el modelo "ha convergido", que es literalmente lo que pide el enunciado. El cVAE sí lo permite.
 
-Lo que hay que decir con honestidad en la presentación: **el suavizado del cVAE tiene un coste específico en datos financieros**. Los retornos reales tienen curtosis muy por encima de 3 y volatilidad agrupada; un generador que produce la media condicional atenúa ambos hechos. Las muestras sintéticas de la clase "crisis" tenderán a ser versiones amortiguadas de las crisis reales: dirección correcta, magnitud insuficiente. Para un downstream que clasifica regímenes esto puede seguir siendo útil (aporta variedad en la frontera de decisión de la clase rara, que es el cuello de botella con ~10% de ejemplos), pero para cualquier uso que dependa de la cola —VaR, stress testing— sería inadecuado. La recomendación es usar el cVAE como generador base fiable, el cGAN como contraste, y **reportar la curtosis y la autocorrelación de $|r|$ de ambos junto a la métrica del downstream**, no solo esta última.
+Lo que hay que decir con honestidad en la presentación: **el suavizado del cVAE tiene un coste específico en datos financieros**. Los retornos reales tienen curtosis muy por encima de 3 y volatilidad agrupada; un generador que produce la media condicional atenúa ambos hechos. Las muestras sintéticas de la clase "crisis" tenderán a ser versiones amortiguadas de las crisis reales: dirección correcta, magnitud insuficiente. Para un downstream que clasifica regímenes esto puede seguir siendo útil (aporta variedad en la frontera de decisión de la clase rara, que es el cuello de botella con ~16 % de ejemplos en train y 10,5 % en test), pero para cualquier uso que dependa de la cola —VaR, stress testing— sería inadecuado. La recomendación es usar el cVAE como generador base fiable, el cGAN como contraste, y **reportar la curtosis y la autocorrelación de $|r|$ de ambos junto a la métrica del downstream**, no solo esta última.
 
 ## 9. Implementación de referencia (CPU)
 
@@ -367,7 +367,7 @@ torch.set_num_threads(8)   # ajustar al numero de nucleos fisicos disponibles
 class CVAE(nn.Module):
     """cVAE con MLP. Condicionamiento por concatenacion de one-hot en encoder y decoder."""
 
-    def __init__(self, d_in=1081, n_clases=3, d_lat=32, h=512):
+    def __init__(self, d_in=1201, n_clases=3, d_lat=32, h=512):
         super().__init__()
         self.d_lat = d_lat
         self.n_clases = n_clases
@@ -483,7 +483,7 @@ def generar(modelo, n, clase, n_clases=3):
     return x_hat, c
 ```
 
-**Tiempos esperados en CPU** (estimación para el orden de magnitud, a validar en la máquina del equipo). Con $D\approx1.081$, $h=512$, $J=32$, el modelo tiene aproximadamente 1,5 M de parámetros. Con ~4.000 ventanas de entrenamiento y `batch_size=128` son ~31 pasos por época; en una CPU de escritorio moderna con 8 hilos eso son del orden de 1–3 s por época, así que **200 épocas quedan en 5–10 minutos**. El barrido de $\beta$ (3-4 valores) y de $J$ (2 valores) cabe holgadamente en una sesión. Ninguna parte del pipeline requiere GPU.
+**Tiempos esperados en CPU** (estimación para el orden de magnitud, a validar en la máquina del equipo). Con $D = 1.201$, $h=512$, $J=32$, el modelo tiene aproximadamente 1,5 M de parámetros. Con las 3.696 ventanas de entrenamiento y `batch_size=128` son 29 pasos por época; en una CPU de escritorio moderna con 8 hilos eso son del orden de 1–3 s por época, así que **200 épocas quedan en 5–10 minutos**. El barrido de $\beta$ (3-4 valores) y de $J$ (2 valores) cabe holgadamente en una sesión. Ninguna parte del pipeline requiere GPU.
 
 Notas operativas:
 

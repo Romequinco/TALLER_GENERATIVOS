@@ -91,7 +91,7 @@ Elementos que no son arbitrarios:
 - **`BatchNormalization` en $G$, no en $D$.** El discriminador de clase no lleva BN. Con BN en $D$, las estadísticas del lote mezclan reales y falsos y filtran información entre muestras.
 - **Adam con `beta_1 = 0.5` y `lr = 2e-4`.** Aparece idéntico en los cuatro cuadernos de GAN. Reducir el momento de primer orden amortigua las oscilaciones del juego adversarial.
 
-La variante convolucional (`GAN_1_Really_Simple_GAN_MNIST_CONV.ipynb`) sustituye las densas por `Conv2D` + `UpSampling2D` en $G$ y `Conv2D` + `MaxPool2D` en $D$. Sólo tiene sentido si el dato tiene estructura espacial local con pesos compartidos; **para nuestro bloque aplanado de ~1.100 dimensiones no la tiene** en el eje de canales (los 18 canales no son traslacionalmente equivalentes), así que la referencia útil es la MLP.
+La variante convolucional (`GAN_1_Really_Simple_GAN_MNIST_CONV.ipynb`) sustituye las densas por `Conv2D` + `UpSampling2D` en $G$ y `Conv2D` + `MaxPool2D` en $D$. Sólo tiene sentido si el dato tiene estructura espacial local con pesos compartidos; **para nuestro bloque aplanado de 1.201 dimensiones no la tiene** en el eje de canales (los 20 canales no son traslacionalmente equivalentes), así que la referencia útil es la MLP.
 
 El **modelo apilado** es el mecanismo por el que $G$ recibe gradiente:
 
@@ -249,7 +249,7 @@ Con esto, la sección de resultados puede afirmar "el modelo ha convergido" y **
 *Mitigación:* `beta_1 = 0.5` en Adam (ya en el código de clase), bajar la tasa de aprendizaje, aumentar el lote.
 > Ampliación (no cubierto en clase): promedio exponencial (EMA) de los pesos de $G$ para muestrear. Es barato, no toca el entrenamiento y estabiliza mucho las muestras en presencia de oscilación; se incluye en la implementación de la sección 9.
 
-**Sobreajuste del discriminador.** Con pocos datos $D$ memoriza el conjunto de entrenamiento y $G$ aprende a copiarlo. **Riesgo alto en nuestro caso**: si la clase "crisis" tiene ~10% de unos pocos miles de ventanas, el número de ejemplos de crisis realmente independientes es muy bajo.
+**Sobreajuste del discriminador.** Con pocos datos $D$ memoriza el conjunto de entrenamiento y $G$ aprende a copiarlo. **Riesgo alto en nuestro caso**: la clase "crisis" es el ~16 % de las 3.696 ventanas de train (10,5 % en test), es decir 587 ventanas, pero agrupadas en sólo 8 rachas contiguas, de modo que el número de ejemplos de crisis realmente independientes es muy bajo.
 *Detección:* mantener un conjunto de validación real que $D$ no vea nunca y monitorizar $\mathcal{L}_D$ sobre él; una brecha creciente entre $\mathcal{L}_D^{\text{train}}$ y $\mathcal{L}_D^{\text{val}}$ es sobreajuste.
 *Mitigación:* reducir $D$, `Dropout`, y comprobar explícitamente que las muestras generadas **no son copias**: distancia al vecino más próximo en el conjunto de entrenamiento, comparada con la distribución de distancias entre reales.
 
@@ -301,7 +301,7 @@ syntetic_labels = np.round(aux_synth[:, -1] * 4.5 + 4.5)
 
 Esto es la **OPT2** de `docs/material_clase/slides/2026_Taller_Generativos.pdf` (diaps. 8 y 13): *"GANs for generating input-output pairs"*. Es una técnica válida y muy simple, pero tiene una consecuencia que nos afecta directamente:
 
-> **Con el bloque conjunto no se puede controlar la etiqueta.** La proporción de clases generadas reproduce la del conjunto de entrenamiento, incluido el desequilibrio. Si "crisis" es el 10% de los datos reales, será ~10% de los sintéticos. No se puede sobre-generar la clase rara, que es exactamente lo que necesitamos.
+> **Con el bloque conjunto no se puede controlar la etiqueta.** La proporción de clases generadas reproduce la del conjunto de entrenamiento, incluido el desequilibrio. Si "crisis" es el ~16 % de los datos reales de train, será ~16 % de los sintéticos. No se puede sobre-generar la clase rara, que es exactamente lo que necesitamos.
 
 Además, la etiqueta generada es un valor continuo redondeado: nada garantiza que caiga limpiamente en una clase, ni que la etiqueta redondeada sea coherente con el $x$ generado.
 
@@ -326,15 +326,15 @@ Advertencia: condicionar no crea información. Si sólo hay un puñado de episod
 
 ## 8. Aplicación a nuestro problema
 
-**Problema.** Panel híbrido diario: S&P500, 9 SPDR sectoriales, VIX, MOVE, spreads de crédito, pendiente de curva, *drawdown* y volatilidad realizada, ~18 canales. Una muestra es una ventana de 60 días, $X \in \mathbb{R}^{60 \times 18}$. Objetivos: $y_{\text{reg}}$ = régimen de mercado a 21 días (3 clases, "crisis" ~10%) y $y_{\text{vol}}$ = volatilidad futura.
+**Problema.** Panel híbrido diario de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro a 20 y a 10 años, crédito grado de inversión e índice dólar) del que salen 20 canales: once de retornos (índice, nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada, *drawdown*, momento, spread de crédito, pendiente de curva, correlación acción-bono y dispersión sectorial). Una muestra es una ventana de 60 días, $X \in \mathbb{R}^{60 \times 20}$. Objetivos: $y_{\text{reg}}$ = régimen de mercado a 21 días (3 clases, "crisis" ~16 % en train y 10,5 % en test) y $y_{\text{vol}}$ = volatilidad futura.
 
-**Elección de opción según el taller.** La diapositiva 8 de `docs/material_clase/slides/2026_Taller_Generativos.pdf` distingue OPT1 (generar sólo entradas) y OPT2 (generar pares entrada-salida). Generamos **el bloque conjunto** $[X \Vert y_{\text{reg}} \Vert y_{\text{vol}}]$, es decir OPT2, pero **condicionado al régimen** (diap. 9), de modo que $y_{\text{reg}}$ se fija como entrada y el generador produce $[X \Vert y_{\text{vol}}]$, de dimensión $60 \times 18 + 1 = 1081$. El régimen se reanexa al bloque después de generar, con lo que la etiqueta es exacta y la dimensión final del bloque es ~1.100 como estaba previsto.
+**Elección de opción según el taller.** La diapositiva 8 de `docs/material_clase/slides/2026_Taller_Generativos.pdf` distingue OPT1 (generar sólo entradas) y OPT2 (generar pares entrada-salida). Generamos **el bloque conjunto** $[X \Vert y_{\text{vol}}]$, es decir OPT2, pero **condicionado al régimen** (diap. 9), de modo que $y_{\text{reg}}$ se fija como entrada y el generador produce $[X \Vert y_{\text{vol}}]$, de dimensión $60 \times 20 + 1 = 1\,201$. Es exactamente el bloque que escribe el cuaderno 02. El régimen se reanexa después de generar, con lo que la etiqueta es exacta y no cuesta ni una dimensión al generador.
 
-**Justificación del condicionamiento.** Es la razón de ser del diseño: la clase minoritaria (~10%) es la que limita el rendimiento del modelo *downstream* y la que menos ejemplos reales tiene. Condicionar permite pedir 6.000 ventanas de crisis sintéticas frente a 2.000 de cada régimen normal.
+**Justificación del condicionamiento.** Es la razón de ser del diseño: la clase minoritaria (~16 % en train, 10,5 % en test) es la que limita el rendimiento del modelo *downstream* y la que menos ejemplos reales tiene. Condicionar permite pedir 6.000 ventanas de crisis sintéticas frente a 2.000 de cada régimen normal.
 
 **Procedimiento de 4 pasos** (diaps. 14-17 de `docs/material_clase/slides/2026_Taller_Generativos.pdf`):
 
-- **STEP 1 — Entrenar la cGAN** con $\{X, y\}$ **del conjunto de entrenamiento únicamente**. Partición estrictamente temporal: entrenamiento hasta $T_1$, validación $[T_1, T_2]$, test $> T_2$, con un hueco de al menos 60+21 días entre bloques para evitar solapamiento de ventanas. Si la GAN ve ventanas que solapan con el test, cualquier mejora medida es fuga de información.
+- **STEP 1 — Entrenar la cGAN** con $\{X, y\}$ **del conjunto de entrenamiento únicamente**. Partición estrictamente temporal: entrenamiento hasta $T_1$, validación $[T_1, T_2]$, test $> T_2$, con un embargo de 85 sesiones de mercado entre bloques (el mínimo que neutraliza el solape es $60 + 21 - 1 = 80$) para evitar solapamiento de ventanas. Si la GAN ve ventanas que solapan con el test, cualquier mejora medida es fuga de información.
 - **STEP 2 — Generar datos sintéticos** $\{X_g, y_g\}$ con la mezcla de regímenes elegida.
 - **STEP 3 — Entrenar el modelo *downstream*** en varias versiones: sólo reales (NN 1) y reales + sintéticos en distintas proporciones (NN 2), **con la misma arquitectura y los mismos hiperparámetros** en todas las versiones. Es requisito explícito del enunciado.
 - **STEP 4 — Evaluar todas las versiones sobre el mismo test real** y comparar.
@@ -358,14 +358,14 @@ Es una línea base exigente y hay que reportarla con honestidad: si la cGAN no l
 
 Entorno: `torch 2.11.0+cpu`, Python 3.13.7, **sin CUDA**. Esto descarta arquitecturas convolucionales profundas y fija el dimensionado en una MLP condicional de 3-4 capas, en la línea del código de clase.
 
-**Dimensionado y coste.** Con $d_z = 128$, $C = 3$, $d_{\text{out}} = 1081$:
+**Dimensionado y coste.** Con $d_z = 128$, $C = 3$, $d_{\text{out}} = 1\,201$:
 
 | Red | Capas | Parámetros |
 |---|---|---|
-| $G$ | $131 \to 512 \to 1024 \to 1081$ | ≈ 1,70 M |
-| $D$ | $1084 \to 512 \to 256 \to 1$ | ≈ 0,69 M |
+| $G$ | $131 \to 512 \to 1024 \to 1201$ | ≈ 1,82 M |
+| $D$ | $1204 \to 512 \to 256 \to 1$ | ≈ 0,75 M |
 
-Total ≈ 2,4 M parámetros. Con lote 64 y `torch.set_num_threads` ajustado a los núcleos físicos, el coste por iteración es del orden de **15-40 ms**; 20.000 iteraciones son aproximadamente **5-13 minutos**. Un barrido de 3 semillas × 4 mezclas de sintéticos cabe holgadamente en una tarde. Estas cifras son un orden de magnitud: hay que medirlas y reportarlas.
+Total ≈ 2,6 M parámetros. Con lote 64 y `torch.set_num_threads` ajustado a los núcleos físicos, el coste por iteración es del orden de **15-40 ms**; 20.000 iteraciones son aproximadamente **5-13 minutos**. Un barrido de 3 semillas × 4 mezclas de sintéticos cabe holgadamente en una tarde. Estas cifras son un orden de magnitud: hay que medirlas y reportarlas.
 
 ```python
 import torch
@@ -374,7 +374,7 @@ import torch.nn as nn
 torch.set_num_threads(8)          # ajustar al número de núcleos físicos
 torch.manual_seed(0)
 
-D_Z, N_CLASES, D_OUT = 128, 3, 60 * 18 + 1   # ruido, regímenes, bloque [X aplanada | y_vol]
+D_Z, N_CLASES, D_OUT = 128, 3, 60 * 20 + 1   # ruido, regímenes, bloque [X aplanada | y_vol]
 
 
 class Generador(nn.Module):

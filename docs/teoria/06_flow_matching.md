@@ -197,7 +197,7 @@ En nuestro caso el régimen de mercado $y_{\text{reg}} \in \{0,1,2\}$ (normal / 
 
 **Mecanismo.** El campo pasa a ser $v_\theta(x, t, c)$. La implementación estándar es un `nn.Embedding(n_clases, d_emb)` cuya salida se suma o concatena al estado oculto, igual que el embedding de tiempo. Todo lo demás es idéntico: se muestrea el par $(x_0, x_1)$, se toma la etiqueta $c$ que acompaña a $x_1$ y se hace la misma regresión.
 
-**Desbalanceo.** La clase "crisis" es ~10% de las ventanas. Dos decisiones distintas que conviene no confundir:
+**Desbalanceo.** La clase "crisis" es ~16 % de las ventanas de train (10,5 % en test). Dos decisiones distintas que conviene no confundir:
 
 - *Durante el entrenamiento*: si el batch respeta la proporción natural, la rama de crisis recibe 10× menos gradiente y su campo queda peor estimado. Un muestreo balanceado por clase (`WeightedRandomSampler`) reparte el gradiente de forma uniforme. Precaución: eso cambia la distribución marginal implícita de $p_1$ que aprende el modelo; como después generamos *condicionando* en la clase, la marginal implícita es irrelevante y el balanceo es un beneficio neto.
 - *Durante la generación*: la mezcla de clases del conjunto sintético es una decisión libre y es el objetivo del taller. Se puede generar 33/33/33 aunque los datos reales sean 60/30/10, para dar al modelo downstream ejemplos de la clase minoritaria.
@@ -257,7 +257,7 @@ def piso_gaussiano(X_train):
     return quad(f, 0, 1, limit=200)[0]
 ```
 
-Con espectros tipo ley de potencias $\lambda_i \propto i^{-\alpha}$ y traza normalizada a $D$, este piso vale 1.117 ($\alpha=1$), 0.583 ($\alpha=1.5$) y 0.282 ($\alpha=2$): cuanto más correlacionados los datos, más predecible es la velocidad y más baja la loss. Un panel financiero de 18 canales sobre 60 días tiene un espectro muy desigual, así que hay que esperar un piso claramente por debajo de 1.
+Con espectros tipo ley de potencias $\lambda_i \propto i^{-\alpha}$ y traza normalizada a $D$, este piso vale 1.111 ($\alpha=1$), 0.570 ($\alpha=1.5$) y 0.271 ($\alpha=2$) para $D=1201$: cuanto más correlacionados los datos, más predecible es la velocidad y más baja la loss. Un panel financiero de 20 canales sobre 60 días tiene un espectro muy desigual, así que hay que esperar un piso claramente por debajo de 1.
 
 **Lectura de la curva, entonces:**
 
@@ -288,7 +288,7 @@ Este es el punto que hay que decir explícitamente en la memoria, porque es dond
 
 1. **La loss está dominada por el término irreducible.** Si el piso es 0.8 y el modelo está en 0.85, la parte *aprendible* del error es 0.05 sobre un total de 0.85: una mejora del 40% en la parte que importa mueve el número total un 2%. Diferencias absolutas minúsculas en la curva corresponden a diferencias grandes en calidad. Corolario: **no se pueden comparar dos modelos por su loss absoluta si no comparten el piso**, y nunca se puede comparar la loss de flow matching con la de difusión.
 2. **El error se integra.** La calidad de la muestra depende del error *acumulado* a lo largo de toda la trayectoria, no del error puntual promedio. Un campo con error pequeño pero sistemáticamente sesgado en una dirección desvía la trayectoria de forma acumulativa. La MSE no ve esa diferencia.
-3. **La media oculta a la minoría.** El promedio sobre todas las muestras y dimensiones diluye por completo un fallo en la clase crisis (10% de los datos): el modelo puede estar generando basura para ese régimen sin que la curva se inmute. **Hay que graficar la loss de validación desagregada por clase.**
+3. **La media oculta a la minoría.** El promedio sobre todas las muestras y dimensiones diluye por completo un fallo en la clase crisis (~16 % de los datos de train): el modelo puede estar generando basura para ese régimen sin que la curva se inmute. **Hay que graficar la loss de validación desagregada por clase.**
 4. **La regresión con MSE es sobre-suavizadora.** El óptimo es una media condicional; un modelo con capacidad insuficiente tiende a producir muestras con las marginales aproximadamente correctas pero con las colas comprimidas y la estructura de dependencia aplanada. En datos financieros eso significa exactamente perder lo que nos interesa: curtosis, clustering de volatilidad y correlaciones que se disparan en crisis.
 
 **Por tanto, la evidencia de convergencia debe ir siempre acompañada de comprobaciones distribucionales**, que en nuestro caso son:
@@ -304,26 +304,26 @@ Este es el punto que hay que decir explícitamente en la memoria, porque es dond
 
 **Qué se genera.** El bloque conjunto por ventana es
 
-$$z = \big[\, \operatorname{vec}(X) \;;\; y_{\text{vol}} \,\big] \in \mathbb{R}^{1081}, \qquad X \in \mathbb{R}^{60 \times 18}$$
+$$z = \big[\, \operatorname{vec}(X) \;;\; y_{\text{vol}} \,\big] \in \mathbb{R}^{1201}, \qquad X \in \mathbb{R}^{60 \times 20}$$
 
-con $\operatorname{vec}(X)$ la ventana de 60 días × ~18 canales del panel híbrido (S&P 500, 9 SPDR sectoriales, VIX, MOVE, spreads de crédito, pendiente de curva, drawdown, volatilidad realizada) aplanada a 1080, más el objetivo continuo $y_{\text{vol}}$. El régimen $y_{\text{reg}} \in \{0,1,2\}$ **no se genera**: se usa como condición $c$ del campo de velocidad (sección 7), lo que permite fijar la mezcla de clases del conjunto sintético.
+con $\operatorname{vec}(X)$ la ventana de 60 días × 20 canales del panel híbrido de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro a 20 y a 10 años, crédito grado de inversión e índice dólar) —once canales de retornos (índice, nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada, drawdown, momento, spread de crédito, pendiente de curva, correlación acción-bono y dispersión sectorial)— aplanada a 1.200, más el objetivo continuo $y_{\text{vol}}$. El régimen $y_{\text{reg}} \in \{0,1,2\}$ **no se genera**: se usa como condición $c$ del campo de velocidad (sección 7), lo que permite fijar la mezcla de clases del conjunto sintético.
 
 Generar el bloque conjunto (y no $X$ sola) es deliberado: el modelo downstream necesita pares $(X, y)$ coherentes, y la dependencia entre la ventana y su etiqueta es justo lo que un generador marginal destruiría.
 
 **Preprocesado — la parte que más fallos causa.**
 
 - **Estandarizar por canal** con media y desviación calculadas **solo sobre el split de entrenamiento**. El objetivo $x_1 - x_0$ mezcla el dato con ruido $\mathcal{N}(0,I)$; si un canal tiene escala 10 y otro 0.01, la loss la domina el primero y el segundo se ignora por completo. Además, así las referencias 2.0 y $\pi/2$ de la sección 8 son directamente aplicables. Los canales de colas muy pesadas (VIX, spreads) se benefician de una transformación previa (log o rangos gaussianos).
-- **Split temporal, nunca aleatorio.** Las ventanas de 60 días se solapan; un split aleatorio pone ventanas casi idénticas a ambos lados y el modelo parece generalizar cuando está memorizando. Corte cronológico con un hueco de al menos 60+21 días entre train y test.
+- **Split temporal, nunca aleatorio.** Las ventanas de 60 días se solapan; un split aleatorio pone ventanas casi idénticas a ambos lados y el modelo parece generalizar cuando está memorizando. Corte cronológico con un embargo contado en sesiones de mercado: la huella de una ventana es $60+21=81$ sesiones, el mínimo es 80 y el valor adoptado son **85 sesiones**.
 
 > Ampliación (no cubierto en clase): la transformación a rangos gaussianos (*rank-gauss*) es la misma idea que la gaussianización iterativa / RBIG que aparece en `../docs/material_clase/slides/Normalizing Flows_2026.pdf`, diapositiva 19, aplicada canal a canal como preproceso.
 
-**Por qué flow matching encaja aquí.** La dimensión nominal es 1081 pero la efectiva es mucho menor: 18 canales fuertemente correlacionados y muy autocorrelacionados en el tiempo. El campo de velocidades resultante es suave y un MLP lo aproxima sin dificultad. El objetivo acotado hace el entrenamiento insensible al escalado residual, y no hay ningún schedule calibrado para imágenes que trasladar mal a datos tabulares.
+**Por qué flow matching encaja aquí.** La dimensión nominal es 1.201 pero la efectiva es mucho menor: 20 canales fuertemente correlacionados y muy autocorrelacionados en el tiempo. El campo de velocidades resultante es suave y un MLP lo aproxima sin dificultad. El objetivo acotado hace el entrenamiento insensible al escalado residual, y no hay ningún schedule calibrado para imágenes que trasladar mal a datos tabulares.
 
 **Riesgos que hay que reconocer en la memoria.**
 
-- **Pocos datos.** Con ~15–25 años de historia diaria salen 4.000–6.000 ventanas, pero muy solapadas: los episodios de mercado *independientes* son decenas, no miles. Para 1081 dimensiones el riesgo de memorización es real, y por eso el test de vecino más próximo de la sección 8 es obligatorio.
-- **La clase crisis es el cuello de botella.** Un 10% suena a 400–600 ejemplos, pero corresponden a un puñado de episodios (2008, 2011, 2020, 2022). Ningún modelo generativo inventa un tipo de crisis que no ha visto; como mucho interpola dentro de las vistas. La conclusión honesta será probablemente que el sintético regulariza y equilibra clases, no que crea información nueva.
-- **El MLP ignora la estructura temporal.** Aplanar 60×18 trata cada (día, canal) como una dimensión aislada. Funciona, pero desperdicia estructura. Alternativa si sobra tiempo: sustituir el MLP por un stack de `Conv1d` sobre el eje temporal dejando idéntico el resto del código, porque el objetivo CFM no cambia en absoluto.
+- **Pocos datos.** Con 23 años de historia diaria salen 5.590 ventanas, 3.696 de ellas en train, pero muy solapadas: sólo hay 70 bloques disjuntos, así que los episodios de mercado *independientes* son decenas, no miles. Para 1.201 dimensiones el riesgo de memorización es real, y por eso el test de vecino más próximo de la sección 8 es obligatorio.
+- **La clase crisis es el cuello de botella.** Ese ~16 % son 587 ventanas de train, pero agrupadas en sólo 8 rachas contiguas: un puñado de episodios (2008 y 2011 en train, el COVID en validación, 2022 en test). Ningún modelo generativo inventa un tipo de crisis que no ha visto; como mucho interpola dentro de las vistas. La conclusión honesta será probablemente que el sintético regulariza y equilibra clases, no que crea información nueva.
+- **El MLP ignora la estructura temporal.** Aplanar 60×20 trata cada (día, canal) como una dimensión aislada. Funciona, pero desperdicia estructura. Alternativa si sobra tiempo: sustituir el MLP por un stack de `Conv1d` sobre el eje temporal dejando idéntico el resto del código, porque el objetivo CFM no cambia en absoluto.
 
 **Post-proceso.** Desestandarizar con las estadísticas de train, recortar $y_{\text{vol}}$ al rango plausible (la volatilidad es positiva) y aplicar los recortes de los canales acotados por construcción (drawdown $\le 0$). Reportar qué fracción de muestras necesita recorte: si es alta, el modelo no ha aprendido bien los soportes.
 
@@ -340,7 +340,7 @@ import torch.nn as nn
 
 torch.set_num_threads(4)   # por defecto usa 2; con 4 nucleos merece la pena
 
-D = 1081        # 60 dias x 18 canales aplanado (1080) + y_vol (1)
+D = 1201        # 60 dias x 20 canales aplanado (1200) + y_vol (1)
 N_CLASES = 3    # regimen: normal / estres / crisis (+1 token nulo para guidance)
 
 
@@ -449,14 +449,14 @@ def muestrear(modelo, n, clase, pasos=20, metodo="euler", w=1.0):
     return x
 ```
 
-**Números concretos medidos** (torch 2.11.0+cpu, 4 núcleos, $D = 1081$, $B = 256$):
+**Números concretos medidos** (torch 2.11.0+cpu, 4 núcleos, $B = 256$; los tiempos se midieron a una dimensión un 10 % inferior y el recuento de parámetros está recalculado a nuestro $D = 1201$):
 
 | Configuración | Parámetros | fp32 | ms/paso | s/época (N=3000) | 500 épocas |
 |---|---|---|---|---|---|
-| `h=512` (recomendada) | 1.765.433 (1,77 M) | 7,1 MB | 133 | 1,5 | **~12 min** |
-| `h=1024` | 4.545.081 (4,55 M) | 18,2 MB | 226 | 2,5 | ~21 min |
+| `h=512` (recomendada) | 1.888.433 (1,89 M) | 7,6 MB | 133 | 1,5 | **~12 min** |
+| `h=1024` | 4.790.961 (4,79 M) | 19,2 MB | 226 | 2,5 | ~21 min |
 
-Con N=6000 ventanas: 3,1 s/época con `h=512` → ~25 min para 500 épocas.
+Con las N=3.696 ventanas de train, interpolando entre las medidas de N=3000 (1,5 s/época) y N=6000 (3,1 s/época): ~1,9 s/época con `h=512`, es decir ~16 min para 500 épocas.
 
 Coste de muestreo (generar el conjunto sintético completo, una sola vez):
 
@@ -465,7 +465,7 @@ Coste de muestreo (generar el conjunto sintético completo, una sola vez):
 | `h=512` | 4,2 s | 10,9 s |
 | `h=1024` | 8,3 s | 22,1 s |
 
-**Recomendación de hiperparámetros**: `h=512` (1,77 M parámetros), `batch_size=256`, AdamW con `lr=2e-4` y decaimiento coseno, `weight_decay=1e-4`, recorte de gradiente a norma 1.0, EMA 0.999, 400–600 épocas, `p_drop_clase=0.1`, muestreo con Euler y 20 pasos (verificando con el barrido de $N$ de la sección 5 que 20 basta). Presupuesto total: **~15 minutos de entrenamiento y ~5 segundos de generación en CPU**. Esto deja margen sobrado para repetir con 3 semillas y reportar dispersión, que es más convincente que una sola curva.
+**Recomendación de hiperparámetros**: `h=512` (1,89 M parámetros), `batch_size=256`, AdamW con `lr=2e-4` y decaimiento coseno, `weight_decay=1e-4`, recorte de gradiente a norma 1.0, EMA 0.999, 400–600 épocas, `p_drop_clase=0.1`, muestreo con Euler y 20 pasos (verificando con el barrido de $N$ de la sección 5 que 20 basta). Presupuesto total: **~15 minutos de entrenamiento y ~5 segundos de generación en CPU**. Esto deja margen sobrado para repetir con 3 semillas y reportar dispersión, que es más convincente que una sola curva.
 
 **Detalle a no pasar por alto.** `../docs/material_clase/notebooks/FlowMatching_imagenes.ipynb` contiene un fallo instructivo: el bucle de entrenamiento toma `x_1 = train_dataset.data[ii,:,:]`, que es el tensor crudo en $[0, 255]$, saltándose el `transforms.Normalize` definido en la celda 2. El ruido $x_0$ sigue siendo $\mathcal{N}(0,1)$, así que el objetivo $x_1 - x_0$ vive en escala de centenas y está dominado por el dato. El modelo aún produce dígitos reconocibles, pero es el ejemplo perfecto de por qué la estandarización de la sección 9 no es opcional en datos con escalas heterogéneas: en un panel financiero el mismo error no produce un resultado visiblemente feo, sino un modelo que ignora silenciosamente los canales de escala pequeña.
 

@@ -107,7 +107,7 @@ def tickers(rol: str | None = None) -> list[str]:
 
 
 def mapa_nombres() -> dict[str, str]:
-    """Diccionario ``ticker -> nombre legible`` (ej. ``^GSPC -> sp500``).
+    """Diccionario ``ticker · nombre legible`` (ej. ``^GSPC · sp500``).
 
     Los nombres legibles son los que se usan como columnas en todo el proyecto;
     los tickers solo aparecen en la descarga.
@@ -177,22 +177,66 @@ def semilla() -> int:
 
 
 def fijar_semillas(valor: int | None = None) -> int:
-    """Fija las semillas de random, numpy y torch. Devuelve la semilla usada.
+    """Fija las semillas de random, numpy, torch y Keras. Devuelve la usada.
 
-    Se llama al principio de cada notebook. No garantiza determinismo bit a bit
-    en operaciones de PyTorch multihilo, pero sí que dos ejecuciones seguidas
-    den resultados equivalentes a efectos del análisis.
+    Se llama al principio de cada notebook y **antes de cada construcción de
+    modelo** en cualquier bucle que compare arquitecturas o semillas.
+
+    El orden importa y no es cosmético. `import keras` consume estado del módulo
+    `random` de la biblioteca estándar mientras se inicializa, así que sembrar
+    antes de importarlo deja el generador en un punto distinto del que queda
+    cuando keras ya estaba cargado. Medido en esta máquina: tras
+    `random.seed(42)`, `random.random()` vale 0,111331068 si keras se importa en
+    medio y 0,639426798 si ya estaba importado. Por eso aquí se importa primero
+    y se siembra después.
+
+    No basta con sembrar `random`, `numpy` y `torch`: Keras 3 mantiene además su
+    propio generador global de semillas, que es el que alimenta la
+    inicialización de pesos. `keras.utils.set_random_seed` lo reinicia junto con
+    los otros tres, y es la única vía verificada que devuelve los mismos pesos
+    iniciales en la primera y en las siguientes construcciones de un kernel.
+
+    Qué la invalida: si se siembra sin haber importado keras antes, el **primer**
+    modelo construido en cada kernel recibe una inicialización distinta de la que
+    recibiría en cualquier posición posterior del bucle. En una búsqueda de
+    arquitecturas eso significa que la primera candidata se evalúa con una
+    semilla efectiva que ninguna otra comparte, y la elección deja de ser
+    defendible. Tampoco garantiza determinismo bit a bit entre máquinas: las
+    rutinas multihilo de PyTorch pueden reordenar sumas en coma flotante.
     """
     valor = semilla() if valor is None else valor
+
+    # Las importaciones van todas antes del sembrado, nunca en medio: cualquier
+    # módulo que consuma aleatoriedad al cargarse desplazaría el estado que
+    # acabamos de fijar.
+    try:
+        import keras
+    except ImportError:  # el paquete se puede usar sin la parte de aprendizaje
+        keras = None
+
+    try:
+        import torch
+    except ImportError:
+        torch = None
 
     random.seed(valor)
     np.random.seed(valor)
 
-    try:
-        import torch
-
+    if torch is not None:
         torch.manual_seed(valor)
-    except ImportError:  # el módulo se puede usar sin PyTorch instalado
-        pass
+
+    if keras is not None:
+        # Resiembra los tres anteriores y, sobre todo, el generador global de
+        # Keras, que es de donde salen los pesos iniciales de cada capa.
+        keras.utils.set_random_seed(valor)
+
+    # No se toca `torch.set_num_threads`. En esta máquina el valor por defecto
+    # ya es 2, que coincide con el número de núcleos FÍSICOS (4 lógicos), y D22
+    # documenta que subirlo por encima de los físicos empeora los tiempos.
+    # Medido sobre el modelo downstream con lote 256: 2,61 s/época con los 2 por
+    # defecto y 2,54 s/época forzando 4, diferencia dentro del ruido entre
+    # repeticiones. Fijarlo tampoco sería portable: `os.cpu_count()` devuelve
+    # los lógicos, y detectar los físicos exigiría añadir psutil a las
+    # dependencias para no ganar nada medible.
 
     return valor

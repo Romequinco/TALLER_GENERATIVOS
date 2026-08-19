@@ -8,7 +8,7 @@ Material base: `docs/material_clase/slides/AR Generative Models.pdf` (Valero Lap
 
 ## 1. Intuición: factorizar la densidad conjunta por la regla de la cadena
 
-Un modelo generativo necesita representar $p(\mathbf{x})$ sobre un objeto de alta dimensión: una imagen, una frase, o —en nuestro caso— una ventana de 60 días × 18 canales. Modelar esa densidad conjunta de golpe es inviable. La idea autoregresiva consiste en **descomponerla en un producto de condicionales de una sola dimensión** aplicando la regla de la cadena de la probabilidad (diap. 3):
+Un modelo generativo necesita representar $p(\mathbf{x})$ sobre un objeto de alta dimensión: una imagen, una frase, o —en nuestro caso— una ventana de 60 días × 20 canales. Modelar esa densidad conjunta de golpe es inviable. La idea autoregresiva consiste en **descomponerla en un producto de condicionales de una sola dimensión** aplicando la regla de la cadena de la probabilidad (diap. 3):
 
 $$p(\mathbf{x}) = p(x_1, x_2, \dots, x_T) = \prod_{t=1}^{T} p(x_t \mid x_1, \dots, x_{t-1}) = \prod_{t=1}^{T} p(x_t \mid x_{<t})$$
 
@@ -18,7 +18,7 @@ Dos observaciones que conviene fijar desde el principio:
 
 2. **La factorización exige un orden.** En imágenes ese orden es artificial: PixelCNN recorre la imagen en *raster scan*, izquierda-derecha y arriba-abajo (diap. 8), lo que impone una asimetría que no existe en el objeto real. En **series temporales financieras el orden viene dado por el tiempo**, y además coincide con la causalidad física del fenómeno: el precio de mañana depende del de hoy, no al revés. Esta es la razón principal por la que el enfoque autoregresivo es el más natural para nuestro problema y por la que su sesgo inductivo es aquí una ventaja y no un artefacto.
 
-La intuición operativa es la del modelo de lenguaje carácter a carácter que se usa en clase como ejemplo (diap. 4-5, con la demo interactiva de Karpathy): el modelo lee el prefijo y emite una **distribución** sobre el siguiente símbolo. Generar consiste en muestrear de esa distribución, añadir el símbolo al prefijo y repetir. Sustituyendo "carácter" por "vector de 18 rendimientos del día $t$" tenemos exactamente nuestro generador.
+La intuición operativa es la del modelo de lenguaje carácter a carácter que se usa en clase como ejemplo (diap. 4-5, con la demo interactiva de Karpathy): el modelo lee el prefijo y emite una **distribución** sobre el siguiente símbolo. Generar consiste en muestrear de esa distribución, añadir el símbolo al prefijo y repetir. Sustituyendo "carácter" por "vector de 20 canales del día $t$" tenemos exactamente nuestro generador.
 
 ---
 
@@ -42,11 +42,11 @@ Consecuencia práctica: **dos modelos solo son comparables por NLL si comparten 
 
 ### Factorización dentro del paso temporal
 
-Con $x_t \in \mathbb{R}^{C}$ ($C \approx 18$ canales) hay que decidir cómo se modela el vector completo:
+Con $x_t \in \mathbb{R}^{C}$ ($C = 20$ canales) hay que decidir cómo se modela el vector completo:
 
 - **Independencia condicional**: $p(x_t\mid x_{<t}) = \prod_c p(x_{t,c}\mid x_{<t})$. Es lo más simple y lo que sale por defecto de una cabeza con $2C$ salidas. **Destruye la correlación contemporánea** entre el S&P y los sectoriales, que es fortísima ($\rho > 0{,}8$ en muchos pares). Inaceptable sin comprobación explícita.
-- **Cadena también entre canales**: $p(x_t\mid x_{<t}) = \prod_c p(x_{t,c}\mid x_{<t}, x_{t,<c})$. Es exactamente la solución de PixelCNN para los canales RGB, implementada con máscaras de tipo A y B (diap. 8-9). Correcta pero multiplica el coste de muestreo por $C$: $60\times18 = 1080$ pasadas.
-- **Gaussiana multivariante con covarianza**: la red emite $\mu_t\in\mathbb{R}^{C}$ y un factor de Cholesky $L_t$ triangular inferior ($C(C+1)/2 = 171$ parámetros para $C=18$). Un único paso de muestreo por instante temporal y correlaciones contemporáneas capturadas. **Es el mejor compromiso para este taller.**
+- **Cadena también entre canales**: $p(x_t\mid x_{<t}) = \prod_c p(x_{t,c}\mid x_{<t}, x_{t,<c})$. Es exactamente la solución de PixelCNN para los canales RGB, implementada con máscaras de tipo A y B (diap. 8-9). Correcta pero multiplica el coste de muestreo por $C$: $60\times20 = 1200$ pasadas.
+- **Gaussiana multivariante con covarianza**: la red emite $\mu_t\in\mathbb{R}^{C}$ y un factor de Cholesky $L_t$ triangular inferior ($C(C+1)/2 = 210$ parámetros para $C=20$). Un único paso de muestreo por instante temporal y correlaciones contemporáneas capturadas. **Es el mejor compromiso para este taller.**
 
 > Ampliación (no cubierto en clase): la parametrización por Cholesky con diagonal positiva (`softplus` o exponencial sobre la diagonal) garantiza que $\Sigma_t = L_tL_t^\top$ sea definida positiva y permite calcular $\log\det\Sigma_t = 2\sum_j \log L_{t,jj}$ en $O(C)$.
 
@@ -85,7 +85,7 @@ Con $k=2$ y $L=6$ (dilataciones $1,2,4,8,16,32$) se obtiene $\text{RF}=64 \ge 60
 
 Las diapositivas listan los componentes: *embeddings* de token más codificación posicional, **atención multi-cabeza causal** (la máscara triangular es el equivalente exacto de la máscara tipo A/B en el dominio de la atención), *layer norm* con conexiones residuales y MLP de expansión. El coste de atención es $O(T^2)$ en tiempo y memoria por capa.
 
-### 3.5 Comparativa para nuestro caso ($T=60$, $C=18$, CPU)
+### 3.5 Comparativa para nuestro caso ($T=60$, $C=20$, CPU)
 
 | Arquitectura | Entrenamiento | Muestreo | Parámetros típicos | Veredicto CPU |
 |---|---|---|---|---|
@@ -93,7 +93,7 @@ Las diapositivas listan los componentes: *embeddings* de token más codificació
 | CNN causal dilatada | paralelo en $T$ | $O(T)$ pasadas | ~90k | **recomendada** |
 | Transformer causal 4 capas | paralelo, $O(T^2)$ | $O(T)$ con caché KV | ~400k+ | sobredimensionado |
 
-Con 60 pasos y ~8.000 ventanas de entrenamiento, un transformer no aporta nada que la CNN dilatada no capture, y multiplica por 4-5 el tiempo en CPU.
+Con 60 pasos y 3.696 ventanas de entrenamiento, un transformer no aporta nada que la CNN dilatada no capture, y multiplica por 4-5 el tiempo en CPU.
 
 ---
 
@@ -180,7 +180,7 @@ $$p_\theta(x_t\mid x_{<t}) = \sum_{k=1}^{K}\pi_k(x_{<t})\,\mathcal{N}\!\left(x_t
 
 Se implementa con `logsumexp` sobre $\log\pi_k + \log\mathcal{N}_k$ por estabilidad numérica. Con $K=3{-}5$ captura **colas gruesas y asimetría** (una componente estrecha para el régimen normal, otra ancha para los saltos). Es la opción con mejor relación calidad/coste para datos financieros.
 
-**(c) Discretización en bins + softmax.** Es literalmente lo que hace PixelCNN con los valores 0-255 (diap. 8: *"Values: Discrete 0-255 (Softmax) or Logistic Mixture"*). Se cuantiza cada canal en $K$ bins definidos por **cuantiles empíricos** (bins finos en el centro, anchos en las colas), y se entrena con entropía cruzada. Ventajas: ninguna hipótesis paramétrica, colas y multimodalidad capturadas automáticamente, y la pérdida es una perplejidad interpretable (diap. 6). Inconvenientes: se pierde la ordinalidad (el modelo no sabe que el bin 12 está junto al 13, mitigable con *label smoothing* sobre bins vecinos), la resolución está limitada por $K$, y la salida crece a $K\times C$ (con $K=50$ y $C=18$, 900 logits).
+**(c) Discretización en bins + softmax.** Es literalmente lo que hace PixelCNN con los valores 0-255 (diap. 8: *"Values: Discrete 0-255 (Softmax) or Logistic Mixture"*). Se cuantiza cada canal en $K$ bins definidos por **cuantiles empíricos** (bins finos en el centro, anchos en las colas), y se entrena con entropía cruzada. Ventajas: ninguna hipótesis paramétrica, colas y multimodalidad capturadas automáticamente, y la pérdida es una perplejidad interpretable (diap. 6). Inconvenientes: se pierde la ordinalidad (el modelo no sabe que el bin 12 está junto al 13, mitigable con *label smoothing* sobre bins vecinos), la resolución está limitada por $K$, y la salida crece a $K\times C$ (con $K=50$ y $C=20$, 1.000 logits).
 
 > Ampliación (no cubierto en clase): la *mixture of discretized logistics* de PixelCNN++, mencionada de pasada en la diap. 8, es el compromiso entre (b) y (c): distribución discreta pero parametrizada de forma continua, con muchos menos parámetros de salida que un softmax de 256 clases.
 
@@ -228,8 +228,8 @@ $$\mathrm{NLL}_{\text{i.i.d.}} = \tfrac{1}{2}\log(2\pi\sigma^2) + \tfrac{1}{2} \
 
 El notebook usa `train_test_split(X, Y, test_size=0.1, random_state=42)` (celda 14) sobre ventanas **solapadas** con paso 1 día. Dos ventanas consecutivas comparten 59 de sus 60 días: al barajar aleatoriamente, el conjunto de validación contiene casi la misma información que el de entrenamiento. La NLL de validación resultante es optimista y **no demuestra convergencia, sino memorización**. Corrección obligatoria:
 
-- **Partición temporal** en bloques contiguos (por ejemplo, entrenamiento hasta 2015, validación 2016-2018, test 2019 en adelante).
-- **Purga y embargo** de al menos $60 + H$ días entre bloques, donde $H$ es el horizonte usado para $y_{\text{vol}}$.
+- **Partición temporal** en bloques contiguos: entrenamiento hasta 2018, validación 2019-2021, test 2022 en adelante.
+- **Purga y embargo** contado en sesiones de mercado: la huella de una ventana es $60 + H = 81$ sesiones, con $H=21$ el horizonte usado para $y_{\text{vol}}$, el mínimo que neutraliza el solape es 80 y el valor adoptado es **85 sesiones**.
 - Estadísticos de normalización calculados **solo con entrenamiento**.
 
 ### 6.5 Convergencia no es correctitud: cuatro comprobaciones adicionales
@@ -256,8 +256,8 @@ Una NLL baja garantiza buen ajuste bajo *teacher forcing*, pero no dice nada sob
 - **Colapso a la media** si la cabeza es determinista (§5). Es el fallo más frecuente y el más difícil de detectar mirando solo la loss.
 - **Sensibilidad al orden de factorización.** En series temporales el orden es natural, pero para variables tabulares no ordenadas el orden elegido sesga el modelo.
 - **Estructura global débil.** Modelan muy bien la dependencia local y peor las propiedades globales de la ventana (*drawdown* acumulado, forma del episodio), porque nada en la pérdida penaliza el resultado agregado a 60 días.
-- **Memorización.** Con verosimilitud exacta, ~8.000 ventanas muy solapadas y 90k parámetros, memorizar es más fácil que generalizar. Comprobación obligatoria en 6.5.4.
-- **Régimen minoritario.** La clase "crisis" es ~10 % de las muestras. El condicional $p(x_t\mid x_{<t}, y_{\text{reg}}=\text{crisis})$ se estima con muy pocos datos y tiende a colapsar hacia el régimen mayoritario: se generan "crisis" que son en realidad mercados normales. Mitigación: sobremuestrear la clase crisis en el entrenamiento del generador y **verificar** que la volatilidad de los sintéticos condicionados a crisis es efectivamente superior.
+- **Memorización.** Con verosimilitud exacta, 3.696 ventanas de train muy solapadas —sólo 70 bloques disjuntos en todo el panel— y 90k parámetros, memorizar es más fácil que generalizar. Comprobación obligatoria en 6.5.4.
+- **Régimen minoritario.** La clase "crisis" es ~16 % de las muestras de train (10,5 % en test), y sólo 8 rachas contiguas. El condicional $p(x_t\mid x_{<t}, y_{\text{reg}}=\text{crisis})$ se estima con muy pocos datos y tiende a colapsar hacia el régimen mayoritario: se generan "crisis" que son en realidad mercados normales. Mitigación: sobremuestrear la clase crisis en el entrenamiento del generador y **verificar** que la volatilidad de los sintéticos condicionados a crisis es efectivamente superior.
 - **Sin espacio latente.** No hay representación comprimida: no se pueden hacer interpolaciones ni aritmética en el latente, a diferencia de un VAE o una GAN.
 - **NLL baja no implica muestras buenas.** Son objetivos relacionados pero no equivalentes; por eso §6.5 no es opcional.
 
@@ -269,7 +269,7 @@ Una NLL baja garantiza buen ajuste bajo *teacher forcing*, pero no dice nada sob
 
 ### 8.1 Objeto a generar
 
-El taller genera el **bloque conjunto** $[\,X;\ y_{\text{reg}};\ y_{\text{vol}}\,]$, con $X\in\mathbb{R}^{60\times 18}$ procedente de un panel híbrido (S&P 500, 9 SPDR sectoriales, VIX, MOVE, spreads de crédito, pendiente de curva, *drawdown* y volatilidad realizada), $y_{\text{reg}}\in\{0,1,2\}$ el régimen y $y_{\text{vol}}\in\mathbb{R}$ la volatilidad futura.
+El taller genera el **bloque conjunto** $[\,X;\ y_{\text{vol}}\,]$, con $X\in\mathbb{R}^{60\times 20}$ procedente de un panel híbrido de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro a 20 y a 10 años, crédito grado de inversión e índice dólar): once canales de retornos (índice, nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada, *drawdown*, momento, spread de crédito, pendiente de curva, correlación acción-bono y dispersión sectorial). $y_{\text{vol}}\in\mathbb{R}$ es la volatilidad futura y $y_{\text{reg}}\in\{0,1,2\}$ el régimen, que va aparte como condición.
 
 ### 8.2 Factorización elegida
 
@@ -277,7 +277,7 @@ $$p(X, y_{\text{reg}}, y_{\text{vol}}) \;=\; \underbrace{p(y_{\text{reg}})}_{\te
 
 Tres decisiones incorporadas en esa expresión:
 
-**(a) $y_{\text{reg}}$ no se muestrea de la distribución empírica: se impone.** Si el 10 % de los datos reales son crisis, muestrear $p(y_{\text{reg}})$ reproduce ese 10 % y el sintético no aporta nada donde más falta hace. La justificación de negocio de este generador es precisamente **rellenar la clase minoritaria**: se generan lotes con la proporción de crisis que se decida (30 %, 50 %) y se mide el efecto en el modelo *downstream*.
+**(a) $y_{\text{reg}}$ no se muestrea de la distribución empírica: se impone.** Si el ~16 % de los datos reales de train son crisis, muestrear $p(y_{\text{reg}})$ reproduce ese ~16 % y el sintético no aporta nada donde más falta hace. La justificación de negocio de este generador es precisamente **rellenar la clase minoritaria**: se generan lotes con la proporción de crisis que se decida (30 %, 50 %) y se mide el efecto en el modelo *downstream*.
 
 **(b) El condicionamiento al régimen es global.** Se aprende un *embedding* $e(y_{\text{reg}})\in\mathbb{R}^{48}$ que se suma a la representación de **todos** los pasos temporales, análogo al *global conditioning* de WaveNet. Coste: 144 parámetros. Alternativa más expresiva: modulación FiLM ($\gamma,\beta$ por bloque residual), que multiplica y desplaza las activaciones; solo merece la pena si el condicionamiento aditivo se ignora, lo que se detecta comparando la volatilidad generada por clase.
 
@@ -288,7 +288,7 @@ Tres decisiones incorporadas en esa expresión:
 
 ### 8.3 Preprocesado
 
-Cada canal exige un tratamiento distinto antes de entrar en el modelo, y todo lo que se aplique debe ser **invertible y documentado** para poder reportar NLL comparable (§2): rendimientos logarítmicos diarios para el S&P y los sectoriales; logaritmo y luego diferencias para VIX y MOVE; diferencias para spreads de crédito y pendiente de curva; logaritmo para la volatilidad realizada; el *drawdown* ($\in[-1,0]$) puede quedarse en nivel o pasarse por un *logit* reescalado.
+Cada canal exige un tratamiento distinto antes de entrar en el modelo, y todo lo que se aplique debe ser **invertible y documentado** para poder reportar NLL comparable (§2): rendimientos logarítmicos diarios para el S&P, los sectoriales y el dólar; logaritmo y luego diferencias para el VIX; diferencias para el spread de crédito y la pendiente de curva; logaritmo para la volatilidad realizada; el *drawdown* ($\in[-1,0]$) puede quedarse en nivel o pasarse por un *logit* reescalado.
 
 Después: *winsorizar* al 0,1 %/99,9 % (con los umbrales de entrenamiento) y estandarizar por canal con $\mu,\sigma$ **de entrenamiento**. Sin la estandarización, los canales de mayor varianza dominan la NLL y el modelo ignora los demás.
 
@@ -304,11 +304,11 @@ Entorno: `torch 2.11.0+cpu`, Python 3.13.7, sin CUDA. Todo lo que sigue está di
 
 ### 9.1 Arquitectura
 
-WaveNet-lite: proyección de entrada $18\to 48$, seis bloques residuales con convolución causal $k=2$ y dilataciones $1,2,4,8,16,32$ (campo receptivo 64 ≥ 60), activación con puerta, conexiones residuales y *skip*, y cabeza gaussiana heterocedástica de $2\times 18$ salidas.
+WaveNet-lite: proyección de entrada $20\to 48$, seis bloques residuales con convolución causal $k=2$ y dilataciones $1,2,4,8,16,32$ (campo receptivo 64 ≥ 60), activación con puerta, conexiones residuales y *skip*, y cabeza gaussiana heterocedástica de $2\times 20$ salidas.
 
-Recuento de parámetros: 912 (conv 1×1 de entrada $18\to48$) + 144 (*embedding* de régimen) + 84.096 (6 bloques × [9.312 de la conv dilatada con puerta + 2.352 residual + 2.352 *skip*]) + 4.116 (cabeza $48\to48\to36$) = **≈ 89.300 parámetros, ~0,36 MB en float32**.
+Recuento de parámetros: 1.008 (conv 1×1 de entrada $20\to48$) + 144 (*embedding* de régimen) + 84.096 (6 bloques × [9.312 de la conv dilatada con puerta + 2.352 residual + 2.352 *skip*]) + 4.312 (cabeza $48\to48\to40$) = **≈ 89.600 parámetros, ~0,36 MB en float32**.
 
-Es un modelo deliberadamente pequeño: con ~8.000 ventanas de entrenamiento, subir de ~150k parámetros lleva directamente a memorización.
+Es un modelo deliberadamente pequeño: con 3.696 ventanas de entrenamiento, subir de ~150k parámetros lleva directamente a memorización.
 
 ### 9.2 Código
 
@@ -333,7 +333,7 @@ class CausalConv1d(nn.Module):
 
 class WaveNetLite(nn.Module):
     """Generador autoregresivo con cabeza gaussiana heterocedastica."""
-    def __init__(self, n_ch=18, n_reg=3, width=48, dilations=(1, 2, 4, 8, 16, 32)):
+    def __init__(self, n_ch=20, n_reg=3, width=48, dilations=(1, 2, 4, 8, 16, 32)):
         super().__init__()
         self.inp  = nn.Conv1d(n_ch, width, 1)
         self.emb  = nn.Embedding(n_reg, width)          # condicionamiento global al regimen
@@ -374,7 +374,7 @@ hist = {"train": [], "val": []}
 for epoca in range(120):
     modelo.train()
     acum = 0.0
-    for ventana, reg in cargador_train:                 # ventana: (B, 18, 60)
+    for ventana, reg in cargador_train:                 # ventana: (B, 20, 60)
         entrada, objetivo = ventana[:, :, :-1], ventana[:, :, 1:]   # desplazamiento de un paso
         mu, ls = modelo(entrada, reg)
         loss = nll_gaussiana(mu, ls, objetivo)
@@ -391,7 +391,7 @@ Muestreo **vectorizado en el eje de muestras** (el punto crítico de rendimiento
 
 ```python
 @torch.inference_mode()
-def muestrear(modelo, n, T=60, H=21, n_ch=18, regimen=2, temp=1.0):
+def muestrear(modelo, n, T=60, H=21, n_ch=20, regimen=2, temp=1.0):
     """Genera n trayectorias de T+H pasos en paralelo. temp=1.0 es la unica opcion no sesgada."""
     modelo.eval()
     reg = torch.full((n,), regimen, dtype=torch.long)
@@ -402,7 +402,7 @@ def muestrear(modelo, n, T=60, H=21, n_ch=18, regimen=2, temp=1.0):
         ruido = torch.randn_like(mu_t)                   # <-- sin esto no hay modelo generativo
         x_next = mu_t + temp * torch.exp(ls_t) * ruido
         x = torch.cat([x, x_next.unsqueeze(-1)], dim=-1)
-    return x[:, :, 1:]                                   # (n, 18, T+H)
+    return x[:, :, 1:]                                   # (n, 20, T+H)
 
 
 def derivar_y_vol(traj, idx_sp500=0, T=60, H=21):
@@ -413,12 +413,12 @@ def derivar_y_vol(traj, idx_sp500=0, T=60, H=21):
 
 ### 9.3 Tiempos estimados en CPU
 
-Supuestos: ~8.000 ventanas de $60\times18$, lote 128 (≈63 lotes/época), 8 hilos.
+Supuestos: 3.696 ventanas de train de $60\times20$, lote 128 (29 lotes/época), 8 hilos.
 
 | Fase | Coste | Estimación |
 |---|---|---|
-| Entrenamiento, una época | 63 pasadas paralelas en $t$ | **2-5 s** |
-| Entrenamiento, 120 épocas | — | **5-10 min** |
+| Entrenamiento, una época | 29 pasadas paralelas en $t$ | **1-2,5 s** |
+| Entrenamiento, 120 épocas | — | **2-5 min** |
 | Muestreo, lote de 512 en paralelo | 81 pasadas de red | **2-5 s** |
 | Muestreo de 5.000 muestras (10 lotes) | — | **30-60 s** |
 | Muestreo **muestra a muestra** (bucle ingenuo) | 5.000 × 81 pasadas | **varias horas** |

@@ -365,14 +365,18 @@ justificado:
 
 ### 8.2 El problema de escalabilidad
 
-El bloque conjunto es $[X; y_{reg}; y_{vol}]$ con $X$ de 60 días $\times$ ~18 canales del panel
-híbrido (S&P500, 9 SPDR sectoriales, VIX, MOVE, spreads de crédito, pendiente de curva,
-drawdown, volatilidad realizada). Aplanado, **$D\approx1.100$**, muy por encima del régimen
-cómodo de RBIG.
+El bloque conjunto es $[X; y_{vol}]$ —$y_{reg}$ va aparte, como condición— con $X$ de 60 días
+$\times$ 20 canales de un panel híbrido de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro
+a 20 y a 10 años, crédito grado de inversión e índice dólar): once canales de retornos (índice,
+nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada,
+drawdown, momento, spread de crédito, pendiente de curva, correlación acción-bono y dispersión
+sectorial). Aplanado, **$D = 1.201$**, muy por encima del régimen cómodo de RBIG.
 
 El coste por capa suma: $D$ histogramas univariantes, $D$ evaluaciones de CDF/ppf, una PCA
 $D\times D$ y $2D$ estimaciones de entropía. Medido directamente en el entorno del proyecto
-(CPU, sin CUDA, rotación PCA):
+(CPU, sin CUDA, rotación PCA); las dos filas de dimensión completa están escaladas desde la
+medida inmediatamente inferior con el exponente empírico $\approx D^{1{,}3}$ que dan las cuatro
+primeras:
 
 | $D$ | $n$ | s/capa | Mínimo 61 capas |
 |---:|---:|---:|---:|
@@ -380,21 +384,22 @@ $D\times D$ y $2D$ estimaciones de entropía. Medido directamente en el entorno 
 | 64 | 1.500 | 0,64 | 0,6 min |
 | 128 | 1.500 | 1,26 | 1,3 min |
 | 512 | 1.500 | 8,47 | 8,6 min |
-| **1.100** | **1.500** | **22,3** | **22,7 min** |
-| 1.100 | 3.000 | 36,0 | 36,6 min |
+| **1.201** | **1.500** | **~25** | **~25 min** |
+| 1.201 | 3.000 | ~40 | ~41 min |
 
 Como la estrategia condicional exige **un RBIG por régimen** (3 modelos), el presupuesto real a
-dimensión completa es de **65 a 110 minutos por experimento**, repetido cada vez que se cambie
+dimensión completa es de **75 a 120 minutos por experimento**, repetido cada vez que se cambie
 una decisión de diseño. A eso se suma la memoria: solo las rotaciones ocupan
-$1100^2\times8$ bytes $=9{,}7$ MB por capa, es decir **590 MB para 61 capas y por régimen**, más
-67.100 objetos `rv_histogram` de scipy.
+$1201^2\times8$ bytes $=11{,}5$ MB por capa, es decir **700 MB para 61 capas y por régimen**, más
+73.261 objetos `rv_histogram` de scipy.
 
 El problema de rango es más serio que el de tiempo. Para que los $D$ histogramas y la PCA estén
-bien estimados hace falta, como regla de trabajo, $n\gtrsim10D$: **11.000 ventanas por
-régimen**. Con panel diario y ventanas de 60 días no hay tantas ventanas ni en el total, y menos
-en el régimen de crisis (~10 %). A dimensión completa el RBIG de crisis tendría del orden de
-cientos de muestras para 1.100 dimensiones: PCA degenerada e histogramas que memorizan.
-**Ajustar RBIG sobre las 1.100 dimensiones crudas no es defendible.**
+bien estimados hace falta, como regla de trabajo, $n\gtrsim10D$: **12.000 ventanas por
+régimen**. Con panel diario y ventanas de 60 días no hay tantas ventanas ni en el total —son
+5.590 en todo el panel y 3.696 en train—, y menos en el régimen de crisis (~16 % en train,
+10,5 % en test). A dimensión completa el RBIG de crisis tendría 587 ventanas para 1.201
+dimensiones: PCA degenerada e histogramas que memorizan.
+**Ajustar RBIG sobre las 1.201 dimensiones crudas no es defendible.**
 
 ### 8.3 Mitigaciones
 
@@ -403,14 +408,14 @@ Por relación beneficio/coste:
 1. **PCA previa (la medida decisiva).** Proyectar a $k\approx32$–$64$ componentes reteniendo el
    95-99 % de la varianza, ajustar RBIG ahí y deshacer la proyección al generar. El panel es
    masivamente redundante — ventanas solapadas, sectores muy correlacionados con el índice — así
-   que la pérdida es pequeña. El ahorro medido es un factor $\approx35$ (22,3 a 0,64 s/capa) y,
-   sobre todo, cambia el requisito muestral de 11.000 a unas 300-600 ventanas por régimen, que
+   que la pérdida es pequeña. El ahorro es un factor $\approx40$ (~25 a 0,64 s/capa) y,
+   sobre todo, cambia el requisito muestral de 12.000 a unas 300-600 ventanas por régimen, que
    sí es alcanzable. Es coherente con RBIG, que ya usa PCA internamente.
 2. **Reducir `zero_tolerance`.** El suelo de 61 capas es puro coste: con la curva saturando en
    menos de 10 capas, una ventana de 10 en lugar de 60 divide el tiempo por ~5 sin afectar al
    modelo retenido. Fijar también `max_layers` en 30-50.
 3. **Submuestrear la ventana temporal.** 60 días diarios son muy redundantes: 1 de cada 3 días,
-   o una ventana de 20, baja $D$ de 1.080 a 360 o menos antes de cualquier otra medida.
+   o una ventana de 20, baja $D$ de 1.200 a 400 o menos antes de cualquier otra medida.
 4. **Ajuste por bloques.** RBIG por grupos de canales con sentido económico (renta variable,
    volatilidad, crédito/curva) y composición posterior. Rompe la dependencia entre bloques, así
    que solo vale si esa dependencia se modela aparte; peor que la PCA previa, pero útil si se
@@ -422,7 +427,8 @@ Por relación beneficio/coste:
 
 ### 8.4 Estrategia condicional: un RBIG por régimen
 
-$y_{reg}$ es el régimen de mercado a 21 días, 3 clases, con "crisis" minoritaria (~10 %). RBIG
+$y_{reg}$ es el régimen de mercado a 21 días, 3 clases, con "crisis" minoritaria (~16 % en
+train, 10,5 % en test). RBIG
 no admite condicionamiento nativo, así que se ajusta **un modelo independiente por clase**:
 
 $$\text{RBIG}_k\ \text{ajustado sobre}\ \{\,[X_i;y_{vol,i}]\ :\ y_{reg,i}=k\,\},\quad k\in\{0,1,2\}$$
@@ -438,7 +444,7 @@ y se muestrea de cada uno etiquetando con su $k$. Implicaciones:
   convierte la limitación en ventaja: permite **rebalancear la clase de crisis**, justo donde el
   modelo downstream tiene menos datos y más margen de mejora.
 - **El requisito muestral se aplica por clase, no al total.** Es la restricción que manda: con
-  $N$ ventanas, crisis aporta $N_{crisis}\approx0{,}1N$, y ese es el $n$ del histograma. Refuerza
+  $N$ ventanas de train, crisis aporta $N_{crisis}\approx0{,}16N$, y ese es el $n$ del histograma. Refuerza
   la mitigación 1: sin reducción de dimensión previa, el modelo de crisis es inservible.
 - **Riesgo de sobreajuste en la clase rara.** Con pocos cientos de muestras RBIG reproducirá la
   muestra de crisis casi literalmente y los "sintéticos" serán copias suavizadas: el downstream
@@ -447,7 +453,8 @@ y se muestrea de cada uno etiquetando con su $k$. Implicaciones:
   en vez de `'auto'`), limitar capas y **evaluar con log-verosimilitud sobre ventanas de crisis
   no vistas**, además del downstream.
 - **Alternativa descartada.** Un único RBIG con $y_{reg}$ incluido y condicionamiento por
-  rechazo es ineficiente para una clase del 10 % y no garantiza etiquetas válidas.
+  rechazo es ineficiente para una clase del 16 % en train (10,5 % en test) y no garantiza
+  etiquetas válidas.
 
 Como control conviene reportar además un RBIG único no condicional: si el condicional por
 régimen no mejora al downstream frente al único, la complejidad añadida no se justifica.
@@ -619,7 +626,7 @@ class RBIGManual:
 
 ### 9.4 Pipeline para el taller: PCA previa + un RBIG por régimen
 
-Combina las dos decisiones de la sección 8. Verificado a $D=1.100$: con PCA previa a 64
+Combina las dos decisiones de la sección 8. Verificado a dimensión completa: con PCA previa a 64
 componentes (98,5 % de varianza retenida) el ajuste completo baja de decenas de minutos a
 segundos.
 
@@ -629,7 +636,7 @@ from sklearn.decomposition import PCA
 def ajusta_rbig_por_regimen(bloque, regimen, n_comp=64, semilla=0):
     """Un RBIG por clase de regimen, cada uno en su propio subespacio PCA.
 
-    bloque : (n_ventanas, ~1100) array aplanado [X ; y_vol]
+    bloque : (n_ventanas, 1201) array aplanado [X ; y_vol]
     regimen: (n_ventanas,) etiqueta entera del regimen de mercado
     """
     modelos = {}

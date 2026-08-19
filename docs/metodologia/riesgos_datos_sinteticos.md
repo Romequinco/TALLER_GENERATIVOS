@@ -74,7 +74,7 @@ Reformulando la sección 1: el sintético compra reducción de varianza pagando 
 - **He et al., ICLR 2023**, *Is synthetic data from generative models ready for image recognition?* ([openreview](https://openreview.net/pdf?id=nUmCcZ5RKF)). El beneficio del sintético se concentra en escenarios de escasez (zero-shot y few-shot), y la mezcla real+sintético supera a cualquiera de los dos por separado: el real corrige el desajuste de dominio del sintético y el sintético estabiliza el ajuste con pocas muestras reales.
 - **Dohmatob y Feng, ICLR 2025** ([arXiv:2410.04840](https://arxiv.org/abs/2410.04840)). Formalización directa del extremo derecho de la curva: en régimen de conjuntos grandes, una fracción sintética incluso pequeña aplana la ley de escalado y añadir datos deja de mejorar. Es exactamente "con 20.000 reales el sintético ya no aporta o perjudica".
 - **Escalado de sintético en preentrenamiento** ([arXiv:2510.01631](https://arxiv.org/abs/2510.01631)): rendimientos decrecientes y en algunos casos negativos al aumentar el volumen sintético en modelos pequeños, mientras que los modelos grandes toleran más. Mismo eje capacidad/varianza.
-- **Elor y Averbuch-Elor, *To SMOTE, or not to SMOTE?*, 2022** ([arXiv:2201.08528](https://arxiv.org/abs/2201.08528)). Con clasificadores fuertes bien ajustados, SMOTE y variantes rara vez superan al reponderado de clases o al remuestreo trivial en métricas independientes del umbral. Traducción: si el objetivo del sintético es solo compensar el 10% de crisis, hay que demostrar que bate a `class_weight`, y medirlo con PR-AUC, no con accuracy.
+- **Elor y Averbuch-Elor, *To SMOTE, or not to SMOTE?*, 2022** ([arXiv:2201.08528](https://arxiv.org/abs/2201.08528)). Con clasificadores fuertes bien ajustados, SMOTE y variantes rara vez superan al reponderado de clases o al remuestreo trivial en métricas independientes del umbral. Traducción: si el objetivo del sintético es solo compensar el 15,9 % de crisis del train, hay que demostrar que bate a `class_weight`, y medirlo con PR-AUC, no con accuracy.
 
 ### 3.3 Un confound que invalida la mitad de los estudios publicados
 
@@ -90,7 +90,7 @@ No existe un ratio universal. La evidencia apunta a tres regularidades:
 2. **El óptimo depende de la tarea y del régimen de datos.** Los rangos reportados en tareas tabulares y de texto se sitúan típicamente entre un 20% y un 50% de sintético en tareas específicas de dominio, y toleran fracciones mayores cuando el objetivo es robustez o diversidad. En el extremo derecho de la curva de datos reales, el óptimo tiende a 0%.
 3. **El resultado teórico existe pero es específico del montaje.** Bertrand et al. dan condiciones de estabilidad en función de la proporción real, no una receta numérica transferible.
 
-**Decisión**: no se adopta un ratio de la literatura, se **mide** la curva. Rejilla de ratios sintético/real `{0, 0.25, 0.5, 1, 2, 4}` cruzada con tamaños reales `{250, 500, 1000, 2000, todo}`. El punto de cruce donde el sintético deja de aportar es un resultado central del taller, no ruido experimental. Se reporta como superficie, con intervalos sobre al menos tres semillas.
+**Decisión**: no se adopta un ratio de la literatura, se **mide** la curva. Rejilla de ratios sintético/real `{0, 0.5, 1, 2, 5}` cruzada con tamaños reales `{250, 500, 1000, 2000, todo}` y con las dos políticas de reparto por clase (`proporcional`, `equilibrado`), tal y como la genera `mezclas.rejilla`. El sintético se **añade** al real, no lo sustituye. El punto de cruce donde el sintético deja de aportar es un resultado central del taller, no ruido experimental. Se reporta como superficie, con intervalos sobre al menos tres semillas.
 
 ---
 
@@ -104,7 +104,7 @@ No existe un ratio universal. La evidencia apunta a tres regularidades:
 
 ### 4.2 Por qué importa en nuestro montaje
 
-Nuestro régimen es precisamente el peligroso: **~4.000–5.000 ventanas, dimensionalidad 60 × nº de activos, generadores con capacidad no trivial (cGAN, cVAE, DDIM)**. Es el escenario de pocos datos y alta capacidad donde memorizar es la solución más fácil para el optimizador. Tres consecuencias:
+Nuestro régimen es precisamente el peligroso: **3.696 ventanas de train, cada una de 60 × 20 canales —el bloque que ve el generador tiene 1.201 dimensiones— y generadores con capacidad no trivial (cGAN, cVAE, DDIM)**. Los 20 canales no son 20 activos: el universo son 15 tickers, y los canales combinan once retornos con nueve features derivadas de estrés (D3). Es el escenario de pocos datos y alta capacidad donde memorizar es la solución más fácil para el optimizador. Tres consecuencias:
 
 1. **Contaminación de la evaluación.** Si el generador reproduce literalmente ventanas de entrenamiento, el clasificador no aprende estructura de régimen: reconoce fechas memorizadas. La métrica downstream se infla sin que haya generalización.
 2. **Riesgo de licencia.** Las series de proveedores comerciales tienen condiciones de redistribución. Un conjunto sintético que reproduce registros reales no es automáticamente un derivado libre.
@@ -134,17 +134,25 @@ Un generador ajustado sobre datos sesgados reproduce el sesgo; si hay realimenta
 
 ### 5.2 El tamaño muestral efectivo de "crisis" es mucho menor de lo que parece
 
-La clase crisis representa ~10% de las ventanas: del orden de 400–500 sobre 4.000–5.000. Ese número es engañoso. Con ventanas de 60 días y desplazamiento de 1 día, dos ventanas consecutivas comparten 59 de 60 días. Un episodio de tres meses genera del orden de 60–90 ventanas **casi idénticas**, no 60–90 observaciones independientes.
+La clase crisis representa el **15,9 % de las ventanas de train: 587 sobre 3.696**. Ese número es engañoso. Con ventanas de 60 días y desplazamiento de 1 día, dos ventanas consecutivas comparten 59 de 60 días. Un episodio de tres meses genera del orden de 60–90 ventanas **casi idénticas**, no 60–90 observaciones independientes.
 
-El número de **episodios distintos** en una muestra típica de índices desde los años 90 es del orden de una docena: 1998 (Rusia/LTCM), 2000–2002 (tecnológicas), 2007–2009 (crisis financiera global), 2010–2012 (deuda soberana europea), 2015–2016 (China/petróleo), Q4 2018, 2020 (COVID), 2022 (inflación y subidas de tipos). **El tamaño muestral efectivo de la clase crisis es del orden de 8–12, no de 400.**
+Lo que hay que contar son las **rachas contiguas** de ventanas de crisis, que es lo que mide `regimenes.tramos_contiguos`. Medido sobre este panel:
 
-Cualquier intervalo de confianza, prueba de significación o afirmación sobre la clase crisis debe construirse sobre ese número. Reportar un F1 de crisis con barra de error calculada como si hubiera 400 muestras independientes es un error estadístico grave, y es el tipo de cosa que un tribunal detecta.
+| Partición | Ventanas de crisis | Rachas contiguas |
+|---|---|---|
+| Train (hasta 2018-12-31) | 587 de 3.696 (15,9 %) | **8** |
+| Validación (hasta 2021-12-31) | 22,0 % de 672 | **2** |
+| Test (2022 en adelante) | 110 de 1.052 (10,5 %) | **3** |
+
+El panel arranca en **2003**, gobernado por los ETF de renta fija del universo (D5), de modo que los episodios de 1998 (Rusia/LTCM) y de 2000–2002 (tecnológicas) **no están en la muestra** y no se pueden invocar como respaldo. Los que sí están son 2008 (crisis financiera global), 2011 (deuda soberana europea), 2020 (COVID), 2022 (inflación y subidas de tipos) y 2023 (SVB). **El tamaño muestral efectivo de la clase crisis es de 13 rachas en todo el panel, y de 3 en el conjunto de test, no de varios cientos de ventanas.**
+
+Cualquier intervalo de confianza, prueba de significación o afirmación sobre la clase crisis debe construirse sobre ese número. Es lo que hace `evaluacion.banda_bloques`, con un bootstrap de bloques circular de 81 ventanas —la huella de una ventana—: sobre la línea base de persistencia en test, un `recall_crisis` de 0,800 tiene un IC del 95 % de **[0,560 – 1,000]**, **3,0 veces más ancho** que el **[0,716 – 0,864]** que produciría el intervalo binomial de Wilson tratando las 110 ventanas como independientes. La consecuencia operativa es que **ninguna comparación de `recall_crisis` entre dos recetas del barrido que difiera en menos de unos 20 puntos es distinguible del ruido**. Reportar la banda estrecha es un error estadístico grave, y es el tipo de cosa que un tribunal detecta.
 
 ### 5.3 Los episodios no son intercambiables
 
-Las crisis difieren en mecanismo, velocidad, magnitud y estructura de correlación. Tres casos canónicos:
+Las crisis difieren en mecanismo, velocidad, magnitud y estructura de correlación. Tres casos canónicos, de los cuales solo los dos últimos están dentro del panel 2003-2026; el primero se cita como ilustración del rango de mecanismos posibles, no como evidencia disponible para el generador:
 
-- **1929–1932**: deflación de deuda, quiebras bancarias en cadena, contracción monetaria. Caída acumulada del orden del 89% en el Dow a lo largo de casi tres años, con dinámica lenta y múltiples rebotes fallidos.
+- **1929–1932** (fuera de la muestra): deflación de deuda, quiebras bancarias en cadena, contracción monetaria. Caída acumulada del orden del 89% en el Dow a lo largo de casi tres años, con dinámica lenta y múltiples rebotes fallidos.
 - **2007–2009**: crisis de crédito y apalancamiento originada en titulizaciones. Caída del orden del 57% en el S&P 500 entre el máximo de octubre de 2007 y el mínimo de marzo de 2009, unos 17 meses, con deterioro progresivo y episodios agudos discretos.
 - **Febrero–marzo 2020**: shock exógeno sanitario. Caída en torno al 34% en 23 sesiones y recuperación en V impulsada por respuesta fiscal y monetaria masiva. Velocidad sin precedentes y reversión igual de rápida.
 
@@ -171,7 +179,7 @@ Consecuencia: **el sintético de "crisis" será más suave que la crisis real**.
 
 - **Leave-one-crisis-out.** Entrenar excluyendo por completo un episodio (2008, 2020, 2022) y evaluar sobre él. Es la única prueba honesta de si el sintético ayuda a generalizar a una crisis no vista. Si solo ayuda cuando el episodio de test está representado en train, está interpolando dentro del episodio, no generalizando entre episodios.
 - **Métricas por episodio**, no solo agregadas.
-- **PR-AUC y recall a precisión fijada** para la clase crisis; nunca accuracy sola con un 10% de prevalencia.
+- **PR-AUC y recall a precisión fijada** para la clase crisis; nunca accuracy sola con una prevalencia del 10,5 % en test.
 - **Intervalos de confianza sobre el número de episodios**, no de ventanas.
 - **Declaración de alcance**: no se afirma que el sintético "cubre escenarios de crisis"; como mucho, que cubre la vecindad de los episodios observados.
 
@@ -216,7 +224,7 @@ X_train, X_val, Y_train, Y_val = train_test_split(X_train_aux, Y_train_aux, test
 
 Precisión sobre el escalado: en estos dos notebooks `StandardScaler` se importa pero no llega a usarse, de modo que no hay fuga por normalización en ellos. El riesgo es genérico y se evita en nuestro repositorio de todos modos.
 
-Contexto y postura: **estos notebooks son material didáctico** cuyo objetivo es exponer la mecánica de los generadores, no el protocolo de validación; el split no es el objeto de la lección y `train_test_split` es la forma más corta de llegar a la parte que se está enseñando. La situación cambia en una entrega evaluada que reporta métricas downstream como resultado: ahí el diseño del split determina si los números significan algo. Por eso este repositorio adopta un esquema temporal con purga y embargo, y lo documenta. Se reporta además la comparación explícita entre ambos protocolos (D16): la diferencia de métricas **es** la magnitud de la fuga, y constituye por sí misma un resultado interesante para la defensa.
+Contexto y postura: **estos notebooks son material didáctico** cuyo objetivo es exponer la mecánica de los generadores, no el protocolo de validación; el split no es el objeto de la lección y `train_test_split` es la forma más corta de llegar a la parte que se está enseñando. La situación cambia en una entrega evaluada que reporta métricas downstream como resultado: ahí el diseño del split determina si los números significan algo. Por eso este repositorio adopta un esquema temporal con purga y embargo, y lo documenta. Se reporta además la comparación explícita entre ambos protocolos (salvaguarda S16, §7): la diferencia de métricas **es** la magnitud de la fuga, y constituye por sí misma un resultado interesante para la defensa.
 
 ### 6.4 La alternativa correcta
 
@@ -226,7 +234,7 @@ Contexto y postura: **estos notebooks son material didáctico** cuyo objetivo es
 
 **Embargo.** Hueco adicional entre el final del train y el inicio del test, para absorber la dependencia serial que el solapamiento estricto no captura: persistencia de la volatilidad, reacción retardada del mercado, efectos de calendario (López de Prado, *Advances in Financial Machine Learning*, Wiley, 2018, cap. 7; resumen del método en [purged cross-validation](https://en.wikipedia.org/wiki/Purged_cross-validation)).
 
-**Hueco mínimo**: `L + H = 60 + 21 = 81` sesiones para garantizar solapamiento cero. Se adopta **85 sesiones** (unos cuatro meses) para incluir margen de embargo.
+**Hueco mínimo**: la huella de una ventana mide `L + H = 60 + 21 = 81` sesiones, así que dos ventanas dejan de compartir dato bruto cuando distan 81. Hay que distinguir dos números que no son el mismo (D7): el **hueco** exigido entre particiones es de **81 sesiones** —es lo que publica `ventanas.auditar_solape` como `minimo_exigido`, `solape_maximo + 1`—, y el **embargo**, es decir el número de ventanas que hay que **descartar** para abrirlo, es de **80**, porque descartar E ventanas deja un hueco de E+1 sesiones. Se adopta un embargo de **85 sesiones de mercado** (unos cuatro meses) para incluir margen. El embargo se cuenta en sesiones, nunca en días naturales: contarlo en días naturales fue un fallo real y medido, porque 85 días naturales son 59 sesiones y dejaban 22 sesiones simultáneamente en dos particiones (D7).
 
 **Si se hace validación cruzada**: *purged K-fold* o *combinatorial purged CV* con purga y embargo en cada frontera, o *walk-forward* con ventana expansiva. Nunca `KFold` estándar ni `train_test_split` barajado.
 
@@ -235,7 +243,7 @@ Contexto y postura: **estos notebooks son material didáctico** cuyo objetivo es
 Cada punto es verificable en el código.
 
 1. **Split temporal, nunca aleatorio.** Prohibido `train_test_split` con `shuffle=True` y `KFold` estándar sobre el dataset de ventanas. El orden cronológico se respeta en train, val y test.
-2. **Purga y embargo de al menos `L + H = 81` sesiones** entre bloques contiguos; valor adoptado, 85. Se aplica en cada frontera train/val y val/test.
+2. **Purga y embargo de al menos 80 sesiones** entre bloques contiguos —el mínimo que neutraliza una huella de `L + H = 81`—; valor adoptado, **85 sesiones de mercado**. Se aplica en cada frontera train/val y val/test.
 3. **El generador se ajusta solo con train.** Ninguno de los siete ve una sola observación de validación o de test, ni directamente ni a través de estadísticos agregados.
 4. **El etiquetado de regímenes se ajusta solo con train.** Si las clases se definen por cuantiles de volatilidad o retorno futuro, esos cuantiles se calculan sobre train y se **aplican congelados** a val y test. Calcularlos sobre el dataset completo es fuga de etiqueta.
 5. **Escalado y toda transformación con parámetros, ajustados solo con train.** Media, desviación, winsorización, PCA, selección de variables: `fit` en train, `transform` en el resto. Nunca `fit_transform` sobre `X` completo.
@@ -258,30 +266,32 @@ Cada punto es verificable en el código.
 
 Decisiones concretas del repositorio, cada una trazable a la sección que la motiva.
 
-| Id | Decisión | Motivación |
-|----|----------|------------|
-| D1 | Split **cronológico** train/val/test, sin barajar, con purga y embargo de **85 sesiones** (`L + H = 81` más margen) en cada frontera. | §6.2, §6.4 |
-| D2 | Umbrales del etiquetado de regímenes (3 clases) calculados **solo con train** y aplicados congelados a val y test. | §6.5.4 |
-| D3 | Escalador y cualquier transformación con parámetros: `fit` en train, `transform` en el resto. Prohibido `fit_transform` sobre el dataset completo. | §6.5.5 |
-| D4 | Los siete generadores se ajustan **exclusivamente con la partición de train**. Verificación por índices temporales. | §6.5.3, §6.5.7 |
-| D5 | **Test y validación son 100% reales.** El sintético solo entra en train. | §6.5.6 |
-| D6 | Presupuesto de optimización fijado entre condiciones con y sin sintético; si no es posible, el resultado se marca como no concluyente. | §3.3 |
-| D7 | Curva de utilidad: tamaños reales `{250, 500, 1000, 2000, todo}` × `{sin sintético, con sintético}`. El punto de cruce se reporta como resultado principal. | §3.1, §3.2 |
-| D8 | Rejilla de ratios sintético/real `{0, 0.25, 0.5, 1, 2, 4}`. No se adopta ningún ratio de la literatura sin medirlo. | §3.4 |
-| D9 | Baselines obligatorios antes de atribuir mérito al sintético: sin augmentación, `class_weight`, ajuste de umbral y jitter (la augmentación más barata). | §1, §3.2 |
-| D10 | Métricas de clase rara: PR-AUC, recall a precisión fija, matriz de confusión completa. Accuracy nunca en solitario. | §5.5 |
-| D11 | Evaluación **leave-one-crisis-out** sobre 2008, 2020 y 2022, con métricas por episodio. | §5.5 |
-| D12 | Intervalos de confianza calculados sobre el número de **episodios** (≈8–12), no de ventanas (≈400). Se reporta el tamaño muestral efectivo junto al nominal. | §5.2 |
-| D13 | Diagnóstico de colas real contra sintético por generador: cuantiles 0,1/1/99/99,9%, distribución del máximo drawdown, estimador de Hill, ACF de retornos absolutos, efecto apalancamiento. | §5.4c |
-| D14 | Diagnóstico de diversidad y colapso de modos: asignación de cada ventana sintética de crisis a su episodio real más próximo; proyección PCA/UMAP (ajustada solo con train) para detectar modos fabricados entre clusters. | §5.4a, §5.4b, §2.3 |
-| D15 | Diagnóstico de memorización: duplicados exactos, correlación máxima contra train, DCR y NNDR comparando train contra holdout. Declarado como sanity check, **no** como garantía de privacidad. | §4.3 |
-| D16 | Control de etiquetas permutadas y comparación explícita **split aleatorio contra split temporal**; la diferencia se reporta como medida de la fuga. | §6.5.10, §6.3 |
-| D17 | Semillas fijas y al menos **3 repeticiones** por configuración; se reportan medias e intervalos, no la mejor ejecución. | §3.4 |
-| D18 | **Ningún reentrenamiento del generador sobre su propia salida.** Una sola generación, documentada como frontera deliberada del alcance. | §2.3 |
-| D19 | Los hiperparámetros del generador se seleccionan con criterios de fidelidad intrínsecos, separados de la evaluación downstream, para no crear un bucle de realimentación blando. | §2.3 |
-| D20 | Declaraciones de alcance en la entrega: no se afirma privacidad, no se afirma cobertura de "escenarios de crisis", y las conclusiones se acotan al periodo muestral y a su régimen macro. | §4.2, §5.4d, §5.5 |
+**Sobre la numeración.** Estas salvaguardas se numeran **S1...S20**, en un espacio propio. Una versión anterior las llamaba D1...D20 y colisionaba con el registro de decisiones de `docs/DECISIONES.md`, donde esos mismos identificadores significan otra cosa —allí D1 es la elección del problema y D16 el test de memorización—, de modo que una cita como "(D16)" no se podía resolver sin adivinar a cuál de los dos documentos apuntaba. La última columna traza cada salvaguarda a la decisión de `DECISIONES.md` que la implementa; un guion significa que la salvaguarda es normativa aquí pero **no** tiene todavía una decisión formal que la respalde, y eso es información, no un hueco de maquetación.
 
-Nota sobre el alcance del riesgo de colapso: al ejecutarse una única generación (D18), el model collapse recursivo descrito en §2.1 no aplica a este trabajo. Lo que sí se mide es su manifestación de una sola iteración —pérdida de diversidad y de masa en las colas— mediante D13 y D14. Invocar el colapso recursivo como riesgo principal de este montaje sería incorrecto y se evita deliberadamente.
+| Id | Salvaguarda | Motivación | Decisión en `DECISIONES.md` |
+|----|----------|------------|------|
+| S1 | Split **cronológico** train/val/test, sin barajar, con purga y embargo de **85 sesiones de mercado** (mínimo 80, huella `L + H = 81`) en cada frontera. | §6.2, §6.4 | D7 |
+| S2 | Umbrales del etiquetado de regímenes (3 clases) calculados **solo con train** y aplicados congelados a val y test. | §6.5.4 | D6 |
+| S3 | Escalador y cualquier transformación con parámetros: `fit` en train, `transform` en el resto. Prohibido `fit_transform` sobre el dataset completo. | §6.5.5 | — (`catalog.yaml`, bloque `escalado`) |
+| S4 | Los siete generadores se ajustan **exclusivamente con la partición de train**. Verificación por índices temporales. | §6.5.3, §6.5.7 | — |
+| S5 | **Test y validación son 100% reales.** El sintético solo entra en train. | §6.5.6 | D7 |
+| S6 | Presupuesto de optimización fijado entre condiciones con y sin sintético; si no es posible, el resultado se marca como no concluyente. | §3.3 | D20 (y D22) |
+| S7 | Curva de utilidad sobre tamaños reales `{250, 500, 1000, 2000, todos}`. El punto de cruce se reporta como resultado principal. | §3.1, §3.2 | D13 |
+| S8 | Rejilla de ratios sintético/real `{0, 0.5, 1, 2, 5}`, cruzada con las dos políticas de reparto por clase. No se adopta ningún ratio de la literatura sin medirlo. | §3.4 | D13, D14 |
+| S9 | Baselines obligatorios antes de atribuir mérito al sintético: sin augmentación, `class_weight`, ajuste de umbral y jitter (la augmentación más barata). | §1, §3.2 | D15, D12 |
+| S10 | Métricas de clase rara: PR-AUC, recall a precisión fija, matriz de confusión completa. Accuracy nunca en solitario. | §5.5 | D17 |
+| S11 | Evaluación **leave-one-crisis-out** sobre 2008, 2020 y 2022, con métricas por episodio. | §5.5 | — |
+| S12 | Intervalos de confianza calculados sobre el número de **rachas** (8 en train, 2 en validación, 3 en test), no de ventanas. Se reporta el tamaño muestral efectivo junto al nominal. | §5.2 | — (`evaluacion.banda_bloques`) |
+| S13 | Diagnóstico de colas real contra sintético por generador: cuantiles 0,1/1/99/99,9%, distribución del máximo drawdown, estimador de Hill, ACF de retornos absolutos, efecto apalancamiento. | §5.4c | D10 |
+| S14 | Diagnóstico de diversidad y colapso de modos: asignación de cada ventana sintética de crisis a su episodio real más próximo; proyección PCA/UMAP (ajustada solo con train) para detectar modos fabricados entre clusters. | §5.4a, §5.4b, §2.3 | — |
+| S15 | Diagnóstico de memorización: duplicados exactos, correlación máxima contra train, DCR y NNDR. Declarado como sanity check, **no** como garantía de privacidad. | §4.3 | D16 |
+| S16 | Control de etiquetas permutadas y comparación explícita **split aleatorio contra split temporal**; la diferencia se reporta como medida de la fuga. | §6.5.10, §6.3 | D7 |
+| S17 | Semillas fijas y al menos **3 repeticiones** por configuración; se reportan medias e intervalos, no la mejor ejecución. | §3.4 | — (`catalog.yaml`, `semilla_global`) |
+| S18 | **Ningún reentrenamiento del generador sobre su propia salida.** Una sola generación, documentada como frontera deliberada del alcance. | §2.3 | — |
+| S19 | Los hiperparámetros del generador se seleccionan con criterios de fidelidad intrínsecos, separados de la evaluación downstream, para no crear un bucle de realimentación blando. | §2.3 | — |
+| S20 | Declaraciones de alcance en la entrega: no se afirma privacidad, no se afirma cobertura de "escenarios de crisis", y las conclusiones se acotan al periodo muestral y a su régimen macro. | §4.2, §5.4d, §5.5 | D1 |
+
+Nota sobre el alcance del riesgo de colapso: al ejecutarse una única generación (S18), el model collapse recursivo descrito en §2.1 no aplica a este trabajo. Lo que sí se mide es su manifestación de una sola iteración —pérdida de diversidad y de masa en las colas— mediante S13 y S14. Invocar el colapso recursivo como riesgo principal de este montaje sería incorrecto y se evita deliberadamente.
 
 ---
 

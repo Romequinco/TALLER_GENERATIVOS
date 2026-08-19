@@ -50,7 +50,7 @@ huecos:
   # índice es `dolar_indice`, con 2 huecos de UNA sesión, así que cualquier valor
   # >= 1 da hoy exactamente el mismo panel. El tope importa para el futuro: un
   # relleno de 5 sesiones seguidas en el índice llevaría `curtosis_residuos` de
-  # 7,3 a 14,9, fuera de la banda de H1, y desviaría `vol_futura` un 72 %. Por eso
+  # 7,2 a 14,9, fuera de la banda de H1, y desviaría `vol_futura` un 72 %. Por eso
   # `calidad.auditar_panel` avisa de cualquier relleno de más de una sesión.
 
 # ─────────────────────────────────────────────────────────────────────────────

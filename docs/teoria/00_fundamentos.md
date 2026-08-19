@@ -4,7 +4,7 @@ Documento base del taller B5-T1 (generación de datos financieros sintéticos). 
 
 Notación común a todo el repositorio:
 
-- $x \in \mathbb{R}^d$: muestra del espacio de datos. Aquí, el bloque conjunto $[\,X ; y_{\text{reg}} ; y_{\text{vol}}\,]$ con $X$ una ventana de $60 \times 18$ (días × canales), es decir $d \approx 1082$.
+- $x \in \mathbb{R}^d$: muestra del espacio de datos. Aquí, el bloque conjunto $[\,X ; y_{\text{vol}}\,]$ con $X$ una ventana de $60 \times 20$ (días × canales) aplanada, es decir $d = 1\,201 = 60 \times 20 + 1$. La etiqueta $y_{\text{reg}}$ no va dentro del bloque: entra como condición.
 - $p_{\text{data}}(x)$: densidad real desconocida. $p_\theta(x)$: densidad del modelo.
 - $z \in \mathbb{R}^k$: variable latente con densidad base $p(z)$ conocida y fácil de muestrear.
 - $J_f(x) = \partial f/\partial x$: matriz jacobiana de $f$ evaluada en $x$.
@@ -29,7 +29,7 @@ Las diap. 10-11 sitúan estos modelos dentro del **entrenamiento no supervisado*
 
 **Qué significa generar.** Generar es muestrear de $p_\theta$. La consecuencia importante es que las etiquetas se generan también: cada muestra sintética trae su propio $(\tilde{X}, \tilde{y}_{\text{reg}}, \tilde{y}_{\text{vol}})$ coherente entre sí. Es el esquema del ejemplo del profesor sobre temperatura superficial, donde el generador produce pares $\{y_g, X_g\}$ conjuntos y no solo entradas (`docs/material_clase/slides/2026_Taller_Generativos.pdf`, diap. 18-26).
 
-Modelar la conjunta $p(X, y_{\text{reg}}, y_{\text{vol}})$ o la condicional $p(X, y_{\text{vol}} \mid y_{\text{reg}})$ son diseños distintos: la conjunta reproduce la frecuencia natural de regímenes (crisis ~10%), la condicional permite fijarla a voluntad. Se discute en la sección 7.
+Modelar la conjunta $p(X, y_{\text{reg}}, y_{\text{vol}})$ o la condicional $p(X, y_{\text{vol}} \mid y_{\text{reg}})$ son diseños distintos: la conjunta reproduce la frecuencia natural de regímenes (crisis ~16 % en train, 10,5 % en test), la condicional permite fijarla a voluntad. Se discute en la sección 7.
 
 ---
 
@@ -102,15 +102,15 @@ def log_verosimilitud_gaussiana(X, mu, Sigma):
 
 ### Límites de MLE
 
-**(a) Maldición de la dimensionalidad.** La diap. 7 la enuncia como obstáculo central y el PDF de flows la cuantifica (`docs/material_clase/slides/Normalizing Flows_2026.pdf`, diap. 3): con un histograma de 7 bins por dimensión, $\text{n.º bins} = 7^{d}$ y el número de muestras necesarias crece como $(\text{n.º bins})^2$. Para $d \approx 1082$ la cifra es astronómica. La estimación no paramétrica es inviable; toda familia utilizable impone estructura (factorización, invertibilidad, latente de baja dimensión).
+**(a) Maldición de la dimensionalidad.** La diap. 7 la enuncia como obstáculo central y el PDF de flows la cuantifica (`docs/material_clase/slides/Normalizing Flows_2026.pdf`, diap. 3): con un histograma de 7 bins por dimensión, $\text{n.º bins} = 7^{d}$ y el número de muestras necesarias crece como $(\text{n.º bins})^2$. Para $d = 1\,201$ la cifra es astronómica. La estimación no paramétrica es inviable; toda familia utilizable impone estructura (factorización, invertibilidad, latente de baja dimensión).
 
-**(b) Muestras efectivas, no nominales.** Las ventanas de 60 días con solape diario están fuertemente correlacionadas. Con $\sim 6\,500$ días hay $\sim 6\,400$ ventanas nominales pero solo $\sim 108$ bloques disjuntos, y el número efectivo de observaciones independientes está cerca del segundo. Toda estimación de covarianza $d \times d$ con $d \approx 1082$ es singular por construcción y exige regularización (shrinkage tipo Ledoit-Wolf, o reducción previa por PCA).
+**(b) Muestras efectivas, no nominales.** Las ventanas de 60 días con solape diario están fuertemente correlacionadas. Con $5\,670$ sesiones de canales hay $5\,590$ ventanas nominales pero solo $70$ bloques disjuntos, y el número efectivo de observaciones independientes está cerca del segundo. Toda estimación de covarianza $d \times d$ con $d = 1\,201$ es singular por construcción y exige regularización (shrinkage tipo Ledoit-Wolf, o reducción previa por PCA).
 
 **(c) Verosimilitud alta no implica muestras buenas.** En dimensión alta ambas magnitudes se desacoplan: un modelo puede alcanzar buena log-verosimilitud y producir muestras inservibles, y al revés.
 
 > Ampliación (no cubierto en clase): el desacoplamiento está formalizado en Theis, van den Oord & Bethge (2016). Es la razón por la que este taller se evalúa por utilidad downstream y no por verosimilitud.
 
-**(d) Desbalanceo.** MLE pondera cada muestra por igual, luego dedica capacidad proporcional a la frecuencia. Con la clase *crisis* al ~10%, el generador aprenderá sobre todo regímenes normales y suavizará precisamente la cola que interesa. Mitigaciones: condicionar por $y_{\text{reg}}$ (cGAN/cVAE), reponderar la verosimilitud, o entrenar un generador por régimen.
+**(d) Desbalanceo.** MLE pondera cada muestra por igual, luego dedica capacidad proporcional a la frecuencia. Con la clase *crisis* al ~16 % en train (10,5 % en test), el generador aprenderá sobre todo regímenes normales y suavizará precisamente la cola que interesa. Mitigaciones: condicionar por $y_{\text{reg}}$ (cGAN/cVAE), reponderar la verosimilitud, o entrenar un generador por régimen.
 
 **(e) No siempre es aplicable.** MLE no sirve para un GAN: su entrenamiento se formula como juego minimax entre generador y discriminador, no como maximización de verosimilitud.
 
@@ -256,10 +256,10 @@ Reglas no negociables del protocolo:
 
 1. El test es **siempre real**. Nunca se evalúa sobre sintético.
 2. El generador se entrena **solo con el tramo de entrenamiento**. Si ve el test, el sintético lo filtra al downstream y el resultado es una fuga.
-3. Con series temporales el corte es cronológico y con embargo: hay que purgar al menos $60 + 21 = 81$ días entre train y test para que ninguna ventana de entrenamiento solape con el horizonte de una etiqueta de test.
+3. Con series temporales el corte es cronológico y con embargo, contado en **sesiones de mercado** y nunca en días naturales: la huella de una ventana es $60 + 21 = 81$ sesiones, así que el mínimo que neutraliza el solape es $60 + 21 - 1 = 80$ sesiones. El valor adoptado en el taller es **85 sesiones**, con 5 de margen.
 4. Varias semillas por configuración, con media ± desviación. Las diferencias entre generadores suelen ser del orden de la varianza entre semillas.
 
-Sobre las métricas downstream: con $y_{\text{reg}}$ de 3 clases y crisis al ~10%, la *accuracy* es engañosa (un clasificador que nunca prediga crisis alcanza ~90%). Hay que usar *balanced accuracy*, macro-F1 y sobre todo el F1 o el recall de la clase crisis. Para $y_{\text{vol}}$, RMSE sobre volatilidad realizada.
+Sobre las métricas downstream: con $y_{\text{reg}}$ de 3 clases y crisis al ~16 % en train (10,5 % en test), la *accuracy* es engañosa (un clasificador que nunca prediga crisis conserva un techo de acierto del 84 % en train y del 89,5 % en test, sin haber detectado una sola crisis). Hay que usar *balanced accuracy*, macro-F1 y sobre todo el F1 o el recall de la clase crisis. Para $y_{\text{vol}}$, RMSE sobre volatilidad realizada.
 
 > Ampliación (no cubierto en clase): el protocolo TSTR (*Train on Synthetic, Test on Real*) está formalizado en Esteban, Hyland & Rätsch (2017) para series temporales. Las métricas de desbalanceo y el embargo temporal tampoco aparecen en las diapositivas; sin ellas los resultados de este taller no serían interpretables.
 
@@ -304,12 +304,12 @@ Advertencia sobre las curvas de pérdida, que el enunciado exige para demostrar 
 
 | Restricción | Valor | Implicación |
 |---|---|---|
-| Dimensión del bloque | $d \approx 1082$ ($60 \times 18 + 2$) | Descarta densidad no paramétrica; obliga a estructura |
-| Muestras nominales | $\sim 6\,000$ ventanas | Insuficiente para modelos *data hungry* |
-| Muestras efectivas | $\sim 100$ bloques disjuntos | Riesgo severo de sobreajuste del generador |
-| Objeto a generar | Bloque conjunto $[X ; y_{\text{reg}} ; y_{\text{vol}}]$ | Debe preservar la dependencia $X \leftrightarrow y$ |
-| Clase crisis | ~10% | Favorece generadores condicionables |
-| Estructura de $X$ | Temporal (60 pasos) + cross-sectional (18 canales) | Favorece arquitecturas que la exploten |
+| Dimensión del bloque | $d = 1\,201$ ($60 \times 20 + 1$) | Descarta densidad no paramétrica; obliga a estructura |
+| Muestras nominales | $5\,590$ ventanas | Insuficiente para modelos *data hungry* |
+| Muestras efectivas | $70$ bloques disjuntos | Riesgo severo de sobreajuste del generador |
+| Objeto a generar | Bloque conjunto $[X ; y_{\text{vol}}]$, con $y_{\text{reg}}$ como condición | Debe preservar la dependencia $X \leftrightarrow y$ |
+| Clase crisis | ~16 % en train (10,5 % en test) | Favorece generadores condicionables |
+| Estructura de $X$ | Temporal (60 pasos) + cross-sectional (20 canales) | Favorece arquitecturas que la exploten |
 
 ### Tabla de decisión
 
@@ -331,7 +331,7 @@ Coste y estabilidad de los tres últimos siguen el cuadro comparativo de `docs/m
 
 **Si el cuello de botella es el número de muestras**: RBIG. No entrena por gradiente, no tiene hiperparámetros de arquitectura y funciona con muestras escasas. En el ejemplo del profesor obtiene 3.62 K frente a 3.46 K del GAN (slides del taller, diap. 28): mismo orden de resultado con una fracción del coste y del riesgo.
 
-**Si el objetivo es corregir el desbalanceo de la clase crisis**: cGAN o cVAE condicionados por $y_{\text{reg}}$, que permiten fijar la proporción de crisis en lugar de heredar el ~10% natural. Es la aplicación donde el condicionamiento aporta valor que la conjunta no puede dar.
+**Si el objetivo es corregir el desbalanceo de la clase crisis**: cGAN o cVAE condicionados por $y_{\text{reg}}$, que permiten fijar la proporción de crisis en lugar de heredar el ~16 % natural de train (10,5 % en test). Es la aplicación donde el condicionamiento aporta valor que la conjunta no puede dar.
 
 **Si se busca el mejor compromiso calidad/estabilidad con cómputo medio**: Flow Matching, por las razones del cuadro comparativo citado.
 

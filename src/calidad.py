@@ -97,7 +97,7 @@ def auditar_panel(
     """Tabla de control del panel: una fila por comprobación, un veredicto por fila.
 
     Sustituye a `datos.resumen()`, que no podía fallar porque recibía el panel ya
-    alineado y sin NaN. Aquí las diez filas miden cosas que el alineado no
+    alineado y sin NaN. Aquí las once filas miden cosas que el alineado no
     arregla: el tipo del índice, el signo de los precios, las rachas de cierres
     congelados y los saltos imposibles.
 
@@ -110,7 +110,7 @@ def auditar_panel(
 
     Qué la invalida: ninguna fila prueba que los **valores** sean correctos. Un
     panel con los precios de otro periodo, o con los dividendos reajustados por
-    yfinance entre dos descargas, pasa las diez comprobaciones. De eso se ocupa
+    yfinance entre dos descargas, pasa las once comprobaciones. De eso se ocupa
     `datos.huella()`, y las dos cosas son complementarias, no alternativas.
 
     Parameters
@@ -140,7 +140,7 @@ def auditar_panel(
     Returns
     -------
     pandas.DataFrame
-        Diez filas indexadas por ``control``, con ``veredicto``
+        Once filas indexadas por ``control``, con ``veredicto``
         (``ok`` / ``aviso`` / ``fallo``), ``medida``, ``limite`` y ``donde``.
 
     Raises

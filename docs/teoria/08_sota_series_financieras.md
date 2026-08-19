@@ -2,7 +2,7 @@
 
 Documento de referencia bibliográfica del taller B5-T1. Cubre los modelos generativos publicados para series temporales financieras, los criterios de validación específicos del dominio y la delimitación explícita de qué es alcanzable bajo la restricción operativa del taller (CPU, 16 días).
 
-Notación coherente con `00_fundamentos.md`: $x \in \mathbb{R}^d$ es el bloque conjunto $[\,X ; y_{\text{reg}} ; y_{\text{vol}}\,]$, con $X$ ventana de $60 \times 18$. Los log-retornos se denotan $r_t = \log(P_t/P_{t-1})$.
+Notación coherente con `00_fundamentos.md`: $x \in \mathbb{R}^d$ es el bloque conjunto $[\,X ; y_{\text{vol}}\,]$, con $X$ ventana de $60 \times 20$ y $y_{\text{reg}}$ aparte como condición. Los log-retornos se denotan $r_t = \log(P_t/P_{t-1})$.
 
 ---
 
@@ -69,7 +69,7 @@ Consecuencia de diseño para el taller: la métrica primaria es la utilidad down
 
 **Generador de mercados con firmas.** Buehler, Horvath, Lyons, Perez Arribas y Wood (2020) usan un **CVAE sobre características de firma** y muestran que supera a la generación basada en retornos, tanto numérica como teóricamente, y que converge con conjuntos de entrenamiento pequeños — el régimen habitual en finanzas ([SSRN 3657366](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3657366)).
 
-**Coste a tener en cuenta.** La dimensión de la firma truncada a profundidad $M$ con $c$ canales es $\sum_{k=1}^{M} c^k$. Con $c=18$ canales y $M=3$ son $18 + 324 + 5832 = 6174$ términos. Sobre 3 o 4 canales seleccionados es perfectamente manejable en CPU; sobre los 18 no lo es.
+**Coste a tener en cuenta.** La dimensión de la firma truncada a profundidad $M$ con $c$ canales es $\sum_{k=1}^{M} c^k$. Con $c=20$ canales y $M=3$ son $20 + 400 + 8000 = 8420$ términos. Sobre 3 o 4 canales seleccionados es perfectamente manejable en CPU; sobre los 20 no lo es.
 
 ### 2.5 TimeVAE (Desai, Freeman, Wang y Beaver, 2021, preprint)
 
@@ -103,7 +103,7 @@ Consecuencia de diseño para el taller: la métrica primaria es la utilidad down
 
 ## 3. Modelos tabulares aplicables
 
-Una ventana $60 \times 18$ aplanada es un vector de 1080 componentes; formalmente, una fila tabular. Los generadores tabulares son por tanto aplicables, con reservas importantes.
+Una ventana $60 \times 20$ aplanada es un vector de 1.200 componentes; formalmente, una fila tabular. Los generadores tabulares son por tanto aplicables, con reservas importantes.
 
 **CTGAN y TVAE** (Xu, Skoularidou, Cuesta-Infante y Veeramachaneni, NeurIPS 2019). CTGAN resuelve dos patologías del dato tabular: distribuciones numéricas multimodales y sesgadas, mediante **normalización específica por modo** (mezcla de gaussianas variacional + codificación one-hot del modo), y desequilibrio de categorías, mediante **muestreo condicional y training-by-sampling** que fuerza la aparición de categorías raras. TVAE aplica la misma normalización dentro de un VAE optimizando el ELBO ([arXiv:1907.00503](https://arxiv.org/abs/1907.00503), código en [github.com/sdv-dev/CTGAN](https://github.com/sdv-dev/CTGAN)).
 
@@ -114,7 +114,7 @@ Una ventana $60 \times 18$ aplanada es un vector de 1080 componentes; formalment
 **Las reservas, que son serias.**
 
 1. **Intercambiabilidad de filas.** Los tres asumen filas i.i.d. sin orden. Al aplanar la ventana, el orden temporal solo sobrevive como correlación entre columnas que el modelo debe redescubrir sin ningún sesgo inductivo que lo favorezca. Una convolución causal lo obtiene gratis.
-2. **Dimensionalidad.** Estos modelos se validan típicamente sobre decenas de columnas. $d \approx 1082$ está fuera del régimen probado, y en CTGAN la normalización por modo ajusta una mezcla por columna: 1080 mezclas.
+2. **Dimensionalidad.** Estos modelos se validan típicamente sobre decenas de columnas. $d = 1.201$ está fuera del régimen probado, y en CTGAN la normalización por modo ajusta una mezcla por columna: 1.201 mezclas.
 3. **Fuga temporal.** Un modelo tabular no distingue "pasado" de "futuro" dentro de la ventana; nada le impide generar dependencias anticausales.
 
 **Uso legítimo.** Como línea base de contraste sobre un vector de **características agregadas** por ventana (media, volatilidad realizada, asimetría, drawdown, pendiente por canal) en lugar de la serie completa. Ahí el supuesto de intercambiabilidad es razonable y la dimensión baja a decenas.
@@ -167,7 +167,7 @@ $$L(\tau) = \frac{\text{corr}\!\left(r_t,\; |r_{t+\tau}|^2\right)}{\text{Var}(r_
 
 que debe ser negativa y decaer con $\tau$. Es el hecho que QuantGAN reporta explícitamente reproducir.
 
-**Asimetría ganancia/pérdida (3).** Cont: *"se observan grandes caídas en precios de acciones e índices, pero no movimientos al alza igualmente grandes"*. Contraste: asimetría muestral, y comparación de las distribuciones de retornos positivos y negativos con la distancia de Kuiper (variante bilateral de Kolmogorov–Smirnov). Davies y Krämer reportan valores de Kuiper de 0,0412 (S&P 500) y 0,0290 (DAX) con $p$-valores 0,000 y 0,060 — es decir, el efecto es real pero no enorme, y **no universal**: en un valor individual (Heidelberger Zement) encuentran el signo contrario. Consecuencia: exigir asimetría negativa en cada uno de los 18 canales sería un criterio equivocado; el hecho aplica a índices, no necesariamente a cada activo.
+**Asimetría ganancia/pérdida (3).** Cont: *"se observan grandes caídas en precios de acciones e índices, pero no movimientos al alza igualmente grandes"*. Contraste: asimetría muestral, y comparación de las distribuciones de retornos positivos y negativos con la distancia de Kuiper (variante bilateral de Kolmogorov–Smirnov). Davies y Krämer reportan valores de Kuiper de 0,0412 (S&P 500) y 0,0290 (DAX) con $p$-valores 0,000 y 0,060 — es decir, el efecto es real pero no enorme, y **no universal**: en un valor individual (Heidelberger Zement) encuentran el signo contrario. Consecuencia: exigir asimetría negativa en cada uno de los 20 canales sería un criterio equivocado; el hecho aplica a índices, no necesariamente a cada activo.
 
 **Los que quedan fuera.** (5) intermitencia y (11) asimetría en escalas temporales requieren alta frecuencia. (10) volumen/volatilidad requiere volumen, que no está en el panel. No se contrastan.
 
@@ -242,7 +242,7 @@ Sí existe literatura específica, y es directamente aplicable al taller.
 
 Huang, Khushi y Suleiman (2023) proponen **RSQGAN**, un cGAN semi-supervisado que genera retornos sintéticos condicionados a la clase de régimen. Las etiquetas se obtienen segmentando la serie con un **algoritmo de puntos de ruptura estructurales**. El resultado clave: RSQGAN simula comportamiento consistente con regímenes empíricos concretos y **supera a un GAN incondicional configurado de forma equivalente entrenado solo con datos del régimen de crisis**. Los autores proponen cuatro métricas sensibles a comportamiento dependiente del camino y accionables en entorno de crisis, e incorporan técnicas de GANs de imagen para regular el compromiso fidelidad/variedad ([*Applied Sciences* 13(19):10639, DOI 10.3390/app131910639](https://doi.org/10.3390/app131910639); [texto completo abierto](https://bura.brunel.ac.uk/bitstream/2438/27486/3/FullText.pdf)).
 
-Ese resultado —condicionar gana a filtrar el conjunto de entrenamiento— es el argumento cuantitativo a favor de un cGAN/cVAE frente a entrenar un generador por régimen. Con crisis $\approx$ 10 % de las ventanas, un generador entrenado solo con crisis dispone de una fracción mínima de datos; el condicional comparte representación con los otros dos regímenes.
+Ese resultado —condicionar gana a filtrar el conjunto de entrenamiento— es el argumento cuantitativo a favor de un cGAN/cVAE frente a entrenar un generador por régimen. Con crisis $\approx$ 16 % de las ventanas de train (10,5 % en test) repartidas en 8 rachas contiguas, un generador entrenado solo con crisis dispone de una fracción mínima de datos; el condicional comparte representación con los otros dos regímenes.
 
 ### 5.2 Otras formas de condicionamiento
 
@@ -261,7 +261,7 @@ La combinación explícita es la de detectar regímenes con un modelo de cambio 
 
 En el taller la etiqueta $y_{\text{reg}}$ se define sobre una **ventana futura de 21 días**. Modelar $p(X \mid y_{\text{reg}})$ significa condicionar a información posterior al final de $X$. Esto es legítimo para aumento de datos —se generan pares $(\tilde X, \tilde y)$ coherentes, que es exactamente lo que necesita el clasificador— pero **invalida cualquier interpretación del generador como simulador de mercado en tiempo real**. La distinción hay que dejarla escrita en la memoria, y la evaluación final debe hacerse sobre datos reales fuera de muestra temporal, nunca sobre sintéticos.
 
-Segunda cautela: modelar la conjunta $p(X, y_{\text{reg}}, y_{\text{vol}})$ reproduce la frecuencia natural de crisis ($\approx$ 10 %); modelar la condicional permite fijarla. Son diseños distintos con consecuencias distintas para el balanceo (§6).
+Segunda cautela: modelar la conjunta $p(X, y_{\text{reg}}, y_{\text{vol}})$ reproduce la frecuencia natural de crisis ($\approx$ 16 % en train, 10,5 % en test); modelar la condicional permite fijarla. Son diseños distintos con consecuencias distintas para el balanceo (§6).
 
 ---
 
@@ -284,7 +284,7 @@ Matiz crítico para datos financieros: el *jittering* con ruido i.i.d. destruye 
 ### 6.3 Las trampas metodológicas, que en este contexto son decisivas
 
 1. **Sintetizar antes de partir.** Generar sobre el conjunto completo y después dividir en entrenamiento/test filtra información de test al entrenamiento. El generador debe entrenarse **solo con el fold de entrenamiento**, y en series temporales la partición debe ser temporal, no aleatoria.
-2. **Métricas engañosas.** Con crisis al 10 %, la exactitud y hasta el ROC-AUC son poco informativos. La métrica debe ser PR-AUC, recall de la clase crisis a precisión fijada, o F1 macro.
+2. **Métricas engañosas.** Con crisis al ~16 % en train y al 10,5 % en test, la exactitud y hasta el ROC-AUC son poco informativos. La métrica debe ser PR-AUC, recall de la clase crisis a precisión fijada, o F1 macro.
 3. **Tamaño muestral efectivo.** Es el punto más importante y el menos mencionado. Con ventanas solapadas de 60 días, dos ventanas consecutivas comparten 59 días. El número de **episodios de crisis independientes** en un panel S&P 500 de dos décadas es del orden de la decena (2008, 2011, 2015, 2018, 2020, 2022), no de los miles de ventanas etiquetadas como crisis. Un generador entrenado sobre esa clase tiene un riesgo alto de memorizar episodios concretos y presentarlos como diversidad. **Hay que medirlo**, no suponerlo: distancia al vecino más próximo del conjunto de entrenamiento para cada muestra sintética, comparada con la distribución de distancias entre muestras reales de entrenamiento. Si la distribución sintética está desplazada hacia cero, hay memorización.
 4. **Utilidad, no realismo.** Es la conclusión de §1: el criterio de aceptación es que el clasificador entrenado con datos aumentados mejore sobre datos reales fuera de muestra.
 
@@ -296,7 +296,7 @@ Restricción operativa: **CPU exclusivamente, sin GPU, y 16 días de calendario*
 
 ### 7.1 Presupuesto de cómputo
 
-El dato de referencia es el de Hounwanou et al. (§2.1): TimeGAN necesitó **4,5 h en una RTX 3090** para log-retornos **univariantes** del S&P 500. Nuestro objeto es $60 \times 18$ multivariante, entre uno y dos órdenes de magnitud más de trabajo por paso. La aceleración típica de una GPU de esa gama frente a una CPU de escritorio en entrenamiento de redes densas y convolucionales pequeñas está en el rango de uno a dos órdenes de magnitud. Multiplicando ambos factores, un TimeGAN completo en nuestro problema es de días de CPU **por semilla** — y la varianza entre ejecuciones documentada en la literatura exige varias semillas. Es inviable, y decirlo es más útil que intentarlo y entregar un resultado con una sola semilla y sin diagnóstico.
+El dato de referencia es el de Hounwanou et al. (§2.1): TimeGAN necesitó **4,5 h en una RTX 3090** para log-retornos **univariantes** del S&P 500. Nuestro objeto es $60 \times 20$ multivariante, entre uno y dos órdenes de magnitud más de trabajo por paso. La aceleración típica de una GPU de esa gama frente a una CPU de escritorio en entrenamiento de redes densas y convolucionales pequeñas está en el rango de uno a dos órdenes de magnitud. Multiplicando ambos factores, un TimeGAN completo en nuestro problema es de días de CPU **por semilla** — y la varianza entre ejecuciones documentada en la literatura exige varias semillas. Es inviable, y decirlo es más útil que intentarlo y entregar un resultado con una sola semilla y sin diagnóstico.
 
 ### 7.2 Decisiones
 
@@ -308,17 +308,17 @@ El dato de referencia es el de Hounwanou et al. (§2.1): TimeGAN necesitó **4,5
 | TCN / convoluciones causales dilatadas | **Dentro** | Barato en CPU, paraleliza en el eje temporal, mejor que RNN |
 | Pérdida guiada por tarea (Fin-GAN) | **Dentro**, versión reducida | Añadir un término de clasificación de régimen al generador es casi gratis |
 | SigCWGAN | Fuera como generador | Entrenar el generador sigue requiriendo optimización cara |
-| Firma truncada como métrica | **Dentro**, condicionado | Solo profundidad 2 sobre 3–4 canales; con 18 canales la dimensión explota (§2.4) |
+| Firma truncada como métrica | **Dentro**, condicionado | Solo profundidad 2 sobre 3–4 canales; con 20 canales la dimensión explota (§2.4) |
 | TimeVAE | **Dentro** en espíritu | El cVAE convolucional es la misma familia; VAE gana a GAN con pocos datos y poco cómputo |
 | Decodificador interpretable de TimeVAE | Fuera | Días de implementación, beneficio incierto en la tarea downstream |
 | Diffusion-TS / CSDI | Fuera | Transformer + cientos de pasos de difusión; no cabe en CPU |
 | DDIM sobre U-Net 1D pequeña | **Dentro** | 20–50 pasos de muestreo en lugar de 1000; ya cubierto en clase |
 | Flow matching | **Dentro** | Entrenamiento sin simulación (regresión de campo vectorial), estable, sin min-max |
 | RBIG | **Dentro**, con reducción previa | Sin gradientes ni red; pero la rotación es $O(d^3)$: aplicar tras PCA a $\sim$50–100 componentes |
-| Gaussiano multivariante | **Dentro** | Línea base honesta; con $d\approx 1082$ la covarianza es singular → usar contracción (Ledoit–Wolf) o estructura factorial |
+| Gaussiano multivariante | **Dentro** | Línea base honesta; con $d = 1.201$ la covarianza es singular → usar contracción (Ledoit–Wolf) o estructura factorial |
 | Jitter | **Dentro**, con ruido estructurado | Ruido i.i.d. destruye el hecho estilizado 8; escalar por volatilidad local |
 | cGAN / cVAE condicionados a régimen | **Dentro** — núcleo del trabajo | Es exactamente el diseño de RSQGAN (§5.1), validado frente a entrenar solo con crisis |
-| CTGAN / TVAE / TabDDPM / GReaT | Fuera como generadores primarios | Intercambiabilidad de filas, $d\approx 1082$ fuera de régimen probado (§3) |
+| CTGAN / TVAE / TabDDPM / GReaT | Fuera como generadores primarios | Intercambiabilidad de filas, $d = 1.201$ fuera de régimen probado (§3) |
 | Modelos tabulares sobre características agregadas | Opcional, si sobra tiempo | Ahí el supuesto sí se sostiene |
 | Tail-GAN (pérdida elicitable VaR/ES) | Fuera | Requiere definir una clase de estrategias; fuera de alcance |
 | Calibración riesgo-neutral (QuantGAN) | Fuera | No hay tarea de pricing en el taller |

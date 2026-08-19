@@ -118,7 +118,7 @@ Convertir el tiempo en un ángulo entre dos límites y devolver seno y coseno ga
 
 **Impacto en datos de baja dimensión intrínseca.**
 
-> Ampliación (no cubierto en clase): los schedules estándar se calibraron para imágenes de $64\times64\times3$ (12.288 dimensiones). En dimensión efectiva mucho más baja —y un panel financiero de 60×18, aunque tenga 1.080 números, tiene una dimensión intrínseca muy inferior por la fuerte correlación entre sectores y días— el mismo schedule **destruye la señal demasiado tarde**: en pasos donde para una imagen ya no quedaría información, en nuestro panel todavía se puede reconstruir casi todo. El síntoma es una loss engañosamente baja acompañada de muestras poco diversas. El remedio habitual es reescalar la entrada por un factor $<1$ (equivale a adelantar el schedule) o desplazar el schedule hacia SNR más bajos. Merece la pena tratarlo como hiperparámetro y verificar visualmente que a $t=1$ el dato ruidoso es indistinguible de $\mathcal N(0,I)$.
+> Ampliación (no cubierto en clase): los schedules estándar se calibraron para imágenes de $64\times64\times3$ (12.288 dimensiones). En dimensión efectiva mucho más baja —y un panel financiero de 60×20, aunque tenga 1.200 números, tiene una dimensión intrínseca muy inferior por la fuerte correlación entre sectores y días— el mismo schedule **destruye la señal demasiado tarde**: en pasos donde para una imagen ya no quedaría información, en nuestro panel todavía se puede reconstruir casi todo. El síntoma es una loss engañosamente baja acompañada de muestras poco diversas. El remedio habitual es reescalar la entrada por un factor $<1$ (equivale a adelantar el schedule) o desplazar el schedule hacia SNR más bajos. Merece la pena tratarlo como hiperparámetro y verificar visualmente que a $t=1$ el dato ruidoso es indistinguible de $\mathcal N(0,I)$.
 
 ## 5. Muestreo: DDPM vs DDIM, número de pasos
 
@@ -197,7 +197,7 @@ $$\tilde\varepsilon = \varepsilon_\theta(x_t,t,\varnothing) + w\big(\varepsilon_
 
 Sobre el valor de $w$, el notebook 6 (celda 16) es directo: *«Numbers like 7 or 8.5 give good results, if you use a very large number the images might look good, but will be less diverse.»*
 
-**Advertencia para nuestro caso**: $w\approx 7.5$ es un valor calibrado para texto→imagen, donde la condición es altísimamente informativa y el espacio enorme. Con 3 clases y datos tabulares, valores altos de $w$ **colapsan la diversidad**, y precisamente en la clase minoritaria («crisis», ~10% de los datos) el colapso es catastrófico: se generarían 5.000 copias casi idénticas de las pocas crisis del conjunto de entrenamiento. Rango razonable a barrer: $w\in\{1.0,\,1.5,\,2.0,\,3.0\}$, midiendo diversidad explícitamente (sección 7), no sólo pureza de clase.
+**Advertencia para nuestro caso**: $w\approx 7.5$ es un valor calibrado para texto→imagen, donde la condición es altísimamente informativa y el espacio enorme. Con 3 clases y datos tabulares, valores altos de $w$ **colapsan la diversidad**, y precisamente en la clase minoritaria («crisis», ~16 % del train y 10,5 % del test) el colapso es catastrófico: se generarían 5.000 copias casi idénticas de las pocas crisis del conjunto de entrenamiento. Rango razonable a barrer: $w\in\{1.0,\,1.5,\,2.0,\,3.0\}$, midiendo diversidad explícitamente (sección 7), no sólo pureza de clase.
 
 CFG cuesta el **doble** de forward passes en muestreo. Es el único sitio donde importa; el entrenamiento no se encarece.
 
@@ -296,7 +296,7 @@ Es el punto crítico y hay que decirlo explícitamente en la entrega. Razones co
 | **Curtosis** de los retornos generados | Colas aplastadas (patología nº 1 aquí) | ≥ 70% de la real |
 | ACF de retornos (lags 1-10) | Estructura temporal espuria | ≈ 0, como en el real |
 | **ACF de $|$retornos$|$** | Clustering de volatilidad | debe reproducir el decaimiento lento real |
-| Error de Frobenius de la matriz de correlación entre los 18 canales | Estructura sectorial | mínimo |
+| Error de Frobenius de la matriz de correlación entre los 20 canales | Estructura sectorial | mínimo |
 | **AUC de un discriminador post-hoc** (GBM real vs sintético) | Realismo global, en un número | **0.5 = indistinguible; > 0.8 = malo** |
 | Distancia al vecino más cercano real | **Memorización** | debe ser comparable a la distancia real-real |
 | **TSTR** (entrenar en sintético, testear en real) | Utilidad, que es el objetivo del taller | maximizar |
@@ -308,9 +308,9 @@ Es el punto crítico y hay que decirlo explícitamente en la entrega. Razones co
 **8.1 Patologías específicas de datos financieros**
 
 - **Sobre-suavizado y colas aplastadas.** El $\varepsilon$-denoiser aproxima una media condicional. Con pocos pasos de muestreo, la muestra se acerca a $\hat x_0$, que es literalmente esa media, y los retornos generados tienen **curtosis muy inferior a la real**. Para un problema donde la clase minoritaria son crisis, esto ataca justo lo que queremos generar. Mitigaciones: MSE (no MAE), suficientes pasos de muestreo (≥ 50), evitar $w$ de CFG alto, y **medir la curtosis explícitamente** (7.8).
-- **Memorización.** Con ~6.000 ventanas de 60 días **solapadas**, el número de sucesos de mercado independientes es de unas pocas decenas. Un modelo de 2,5M de parámetros puede memorizar sin dificultad. En la clase «crisis» (~10%, ~600 ventanas, y en la práctica 3-4 episodios históricos) el riesgo es máximo. Métrica de control: distancia al vecino más cercano real (7.8). Mitigaciones: reducir capacidad, *weight decay* (el notebook usa AdamW con `weight_decay=1e-4` y lo justifica: *«hace más estable el entrenamiento»*), y no exprimir hasta la última décima de loss.
+- **Memorización.** Con 5.590 ventanas de 60 días **solapadas** —3.696 de ellas en train—, el número de sucesos de mercado independientes es de unas pocas decenas: 70 bloques disjuntos en todo el panel. Un modelo de 2,6M de parámetros puede memorizar sin dificultad. En la clase «crisis» (~16 % del train, 587 ventanas agrupadas en sólo 8 rachas contiguas) el riesgo es máximo. Métrica de control: distancia al vecino más cercano real (7.8). Mitigaciones: reducir capacidad, *weight decay* (el notebook usa AdamW con `weight_decay=1e-4` y lo justifica: *«hace más estable el entrenamiento»*), y no exprimir hasta la última décima de loss.
 - **Colapso de diversidad por CFG.** Ver sección 6. Es un fallo de muestreo, invisible en la loss.
-- **Escalas heterogéneas.** Los 18 canales mezclan retornos ($\sigma\sim 1\%$ diario), VIX (nivel ~15-80), MOVE, *spreads* de crédito y pendiente de curva. Sin normalización **por canal**, el ruido gaussiano isótropo destruye antes los canales de menor varianza: el modelo entrena de facto con schedules distintos por canal. **Obligatorio**: z-score por canal con estadísticos calculados **sólo en train**.
+- **Escalas heterogéneas.** Los 20 canales mezclan retornos ($\sigma\sim 1\%$ diario), nivel y variación del VIX, *spread* de crédito, pendiente de curva y dispersión sectorial. Sin normalización **por canal**, el ruido gaussiano isótropo destruye antes los canales de menor varianza: el modelo entrena de facto con schedules distintos por canal. **Obligatorio**: z-score por canal con estadísticos calculados **sólo en train**.
 - **Fuga temporal.** Ventanas solapadas + etiqueta a 21 días vista. Un *shuffle* aleatorio pone en validación ventanas que comparten días con las de entrenamiento y la loss de validación queda inflada de optimismo.
 - **Inestabilidad numérica.** $\hat x_0=(x_t-n\varepsilon_\theta)/s$ explota si $s\to 0$. De ahí `min_signal_rate = 0.02` en el notebook. No lo bajes a 0.
 
@@ -332,11 +332,11 @@ Aviso de hardware medido: en un portátil de 2 núcleos, bajo carga sostenida ap
 
 ### 9.1 Qué se genera exactamente
 
-El objeto a modelar es el bloque conjunto $[\,X\;;\;y_{\text{reg}}\;;\;y_{\text{vol}}\,]$, con $X$ de forma $(60,18)$ (60 días × ~18 canales del panel híbrido: S&P500, 9 SPDR sectoriales, VIX, MOVE, *spreads* de crédito, pendiente de curva, *drawdown*, volatilidad realizada).
+El objeto a modelar es el bloque conjunto $[\,X\;;\;y_{\text{vol}}\,]$ —con $y_{\text{reg}}$ aparte, como condición—, con $X$ de forma $(60,20)$: 60 días × 20 canales derivados de un panel híbrido de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro a 20 y a 10 años, crédito grado de inversión e índice dólar), once de retornos (índice, nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada, *drawdown*, momento, *spread* de crédito, pendiente de curva, correlación acción-bono y dispersión sectorial).
 
 **Decisión recomendada: no generar $y_{\text{reg}}$; condicionarse a ella.**
 
-$$\text{difusión sobre } [\,X_{\text{aplanado}} \;;\; y_{\text{vol}}\,] \in \mathbb R^{1081}, \quad \text{condicionada a } y_{\text{reg}}\in\{0,1,2\}$$
+$$\text{difusión sobre } [\,X_{\text{aplanado}} \;;\; y_{\text{vol}}\,] \in \mathbb R^{1201}, \quad \text{condicionada a } y_{\text{reg}}\in\{0,1,2\}$$
 
 1. $y_{\text{reg}}$ es categórica. La difusión gaussiana modela variables continuas; meter una etiqueta discreta en el vector la trata como continua y luego hay que redondear, con etiquetas ambiguas como resultado.
 2. **Resuelve el desbalance por construcción.** Si la clase es una condición y no una salida, se puede muestrear la clase «crisis» en la proporción que se quiera: 10%, 33% o 100%. Ese es precisamente el uso que el enunciado busca para los datos sintéticos.
@@ -350,14 +350,14 @@ Con CFG, la tabla de embeddings tiene 4 entradas: 3 regímenes + token nulo $\va
 - **No winsorizar** antes de entrenar: eliminaría exactamente los eventos extremos que queremos que el modelo aprenda a generar.
 - **Partición cronológica**, no aleatoria: train / val / test en bloques temporales.
 
-> Ampliación (no cubierto en clase): dado que las ventanas de 60 días se solapan y la etiqueta mira 21 días hacia delante, entre bloques hay que dejar un **embargo de al menos 60 + 21 = 81 días hábiles** para eliminar el solape de información. Sin ese embargo, la loss de validación está contaminada y no demuestra nada.
+> Ampliación (no cubierto en clase): dado que las ventanas de 60 días se solapan y la etiqueta mira 21 días hacia delante, entre bloques hay que dejar un **embargo contado en sesiones de mercado**: la huella de una ventana es $60 + 21 = 81$ sesiones, el mínimo que elimina el solape es 80 y el valor adoptado en el taller es **85 sesiones**. Sin ese embargo, la loss de validación está contaminada y no demuestra nada.
 
 ### 9.3 Representación: secuencia vs aplanado
 
 | Opción | Arquitectura | Parámetros | Coste medido (época) | Valoración |
 |---|---|---|---|---|
-| Aplanado $\mathbb R^{1081}$ | MLP + emb. tiempo + emb. clase | 0,9M (H=256) | **~1,7 s** | **Recomendada.** Barata, estable, sin sesgo inductivo pero suficiente para 60 pasos. |
-| Secuencia $(60,18)$ | U-Net 1D ligera | 0,17M | ~9,3 s (**5,5× más lenta**) | Mejor sesgo inductivo temporal, pero las convoluciones 1D en CPU son ineficientes. Sólo si sobra tiempo. |
+| Aplanado $\mathbb R^{1201}$ | MLP + emb. tiempo + emb. clase | 0,98M (H=256) | **~1,7 s** | **Recomendada.** Barata, estable, sin sesgo inductivo pero suficiente para 60 pasos. |
+| Secuencia $(60,20)$ | U-Net 1D ligera | 0,17M | ~9,3 s (**5,5× más lenta**) | Mejor sesgo inductivo temporal, pero las convoluciones 1D en CPU son ineficientes. Sólo si sobra tiempo. |
 
 Contraintuitivo pero medido: la U-Net 1D tiene **5× menos parámetros y es 5× más lenta** que el MLP en esta CPU. Las convoluciones sobre secuencias cortas no aprovechan bien las rutinas BLAS; el MLP es todo GEMM denso, que es donde la CPU rinde. **Empezar por el MLP aplanado.**
 
@@ -367,7 +367,7 @@ Contraintuitivo pero medido: la U-Net 1D tiene **5× menos parámetros y es 5× 
 
 Propuesta: ajustar PCA sobre el bloque aplanado (**sólo con datos de train**), conservar $k=64$-$128$ componentes (típicamente ≥95% de varianza en un panel tan correlacionado), difundir en ese espacio y reconstruir al generar.
 
-**A favor**: (a) *coste* — 1081 → 64 dimensiones, medido **~1,0 s/época frente a ~1,7 s** y el modelo baja a 0,12M parámetros, con margen para muchas más épocas y barridos; (b) *menos memorización* — menos parámetros y menos dimensiones donde memorizar 600 ventanas de crisis; (c) *blanqueado natural* — si se escalan las componentes a varianza unidad, el supuesto de ruido isótropo se cumple *exactamente* en lugar de aproximadamente, lo que resuelve de raíz el problema de escalas heterogéneas del apartado 8.1; (d) la dimensión intrínseca real del panel es baja (1081 números con correlaciones sectoriales fuertes y suavidad temporal).
+**A favor**: (a) *coste* — de 1.201 a 64 dimensiones, medido **~1,0 s/época frente a ~1,7 s** y el modelo baja a 0,12M parámetros, con margen para muchas más épocas y barridos; (b) *menos memorización* — menos parámetros y menos dimensiones donde memorizar 587 ventanas de crisis; (c) *blanqueado natural* — si se escalan las componentes a varianza unidad, el supuesto de ruido isótropo se cumple *exactamente* en lugar de aproximadamente, lo que resuelve de raíz el problema de escalas heterogéneas del apartado 8.1; (d) la dimensión intrínseca real del panel es baja (1.201 números con correlaciones sectoriales fuertes y suavidad temporal).
 
 **En contra**: (a) la PCA es **lineal**, y toda estructura no lineal (clustering de volatilidad, asimetría, dependencia en colas) que no viva en el subespacio principal se pierde antes de que el generador la vea; (b) la reconstrucción **suaviza**, sumándose al sobre-suavizado propio de la difusión, doble penalización sobre la curtosis; (c) las componentes de baja varianza descartadas pueden ser justo las que codifican los eventos raros.
 
@@ -387,10 +387,10 @@ Objetivo: una implementación deliberadamente pequeña, con embedding sinusoidal
 import math, torch, torch.nn as nn
 
 # ---------------- Configuracion de referencia (CPU) ----------------
-D_DATOS   = 1081     # 60 dias x 18 canales aplanado + y_vol
+D_DATOS   = 1201     # 60 dias x 20 canales aplanado + y_vol
 N_CLASES  = 3        # regimenes de mercado (+1 token nulo para CFG)
 T         = 1000     # pasos de difusion en entrenamiento
-H         = 256      # ancho oculto -> ~0.9M parametros
+H         = 256      # ancho oculto -> ~0.98M parametros
 D_EMB     = 128      # dimension del embedding sinusoidal del tiempo
 BATCH     = 128
 LR        = 2e-4     # el notebook usa 1e-3; en datos tabulares conviene mas bajo
@@ -506,14 +506,14 @@ Nótese que las dos últimas líneas son exactamente la lógica del notebook de 
 
 ### 10.5 Tiempos medidos en la máquina objetivo
 
-Máquina: Intel Skylake móvil, 2 núcleos físicos / 4 hilos, sin CUDA. torch 2.11.0+cpu, Python 3.13.7. $N=6.000$ ventanas, `batch=128` → 46 pasos por época.
+Máquina: Intel Skylake móvil, 2 núcleos físicos / 4 hilos, sin CUDA. torch 2.11.0+cpu, Python 3.13.7. Los tiempos se midieron con 46 pasos por época; el train real son $N=3.696$ ventanas, que con `batch=128` dan **29 pasos por época**, así que las columnas de tiempo son una cota superior y en la máquina bajan alrededor de un tercio.
 
 | Configuración | $D$ | $H$ | Parámetros | s/época | 400 épocas | 1.000 épocas |
 |---|---|---|---|---|---|---|
-| **MLP (recomendada)** | 1081 | 256 | **0,92M** | **~1,7 s** | **~11 min** | ~28 min |
-| MLP amplia | 1081 | 512 | 2,49M | ~3,3-4,4 s | ~25 min | ~60 min |
+| **MLP (recomendada)** | 1201 | 256 | **0,98M** | **~1,7 s** | **~11 min** | ~28 min |
+| MLP amplia | 1201 | 512 | 2,61M | ~3,3-4,4 s | ~25 min | ~60 min |
 | **MLP sobre PCA-64 (mínima)** | 64 | 128 | **0,12M** | **~1,0 s** | **~7 min** | ~17 min |
-| U-Net 1D `base=32` | (60,18) | — | 0,17M | ~9,3 s | ~60 min | ~155 min |
+| U-Net 1D `base=32` | (60,20) | — | 0,17M | ~9,3 s | ~60 min | ~155 min |
 
 Muestreo (lote de 512, DDIM-50, sin CFG): **~1,0 s** con H=256, ~3 s con H=512. Con CFG, el doble.
 

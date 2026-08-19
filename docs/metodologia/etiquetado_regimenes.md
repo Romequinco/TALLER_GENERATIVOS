@@ -1,8 +1,13 @@
 # Etiquetado de regímenes de mercado
 
-Documento metodológico del taller B5-T1. Fija cómo se construye `y_reg`, la variable objetivo de
-clasificación del modelo *downstream*, y por qué se construye así. Es la referencia normativa del
-notebook `01_etiquetado_regimenes.ipynb` y del módulo `src/regimenes.py`.
+Documento metodológico del taller B5-T1. Explica cómo se construye `y_reg`, la variable objetivo de
+clasificación del modelo *downstream*, y **por qué** se construye así.
+
+Qué es y qué no es. Es la **justificación metodológica** de las decisiones que implementan
+`src/regimenes.py` y el cuaderno `01_etiquetado_regimenes.ipynb`. **No** es una especificación
+ejecutable: los parámetros vigentes viven en `data/catalog.yaml` y la API real, en el módulo. Cuando
+este documento y el código discrepen, manda el código; los fragmentos de código que aquí aparecen son
+ilustrativos y se citan por nombre de función para que la discrepancia se pueda comprobar.
 
 El taller hereda el marco causal y la canonicalización económica del TFM de detección de regímenes
 (`PRUEBAS_DETECCION_REGIMENES_DE_MERCADO_TFM/`), pero **cambia el problema**: aquel detecta el
@@ -10,10 +15,10 @@ régimen de hoy; este predice el que dominará los próximos 21 días. La secci�
 diferencia, que es el núcleo del documento.
 
 Notación: $r_t$ retorno logarítmico diario del S&P 500; $\mathbf{o}_t \in \mathbb{R}^{d}$ vector de
-*features de etiquetado* ($d=5$, §8); $s_t \in \{0,\dots,K-1\}$ estado latente con $0$ = calma y
+*features de etiquetado* ($d=3$, §8); $s_t \in \{0,\dots,K-1\}$ estado latente con $0$ = calma y
 $K-1$ = crisis; $\mathcal{F}_t = \sigma(\{\mathbf{o}_u\}_{u \le t})$; $h = 21$ horizonte de agregación
 en días de mercado; $X_t \in \mathbb{R}^{60 \times 20}$ ventana de entrada
-(`data/catalog.yaml:73-104`); $y_{\text{reg}}(t)$ etiqueta de la ventana que acaba en $t$.
+(`data/catalog.yaml`, bloque `canales`); $y_{\text{reg}}(t)$ etiqueta de la ventana que acaba en $t$.
 
 ---
 
@@ -40,8 +45,8 @@ alarmas, no ajustan nada. Su glosario eleva la separación a regla: una serie de
 
 De ahí las dos consecuencias que estructuran el resto: **la etiqueta es una decisión de modelado, no
 un dato** —cambiar método, número de estados o ventana de agregación cambia `y_reg` y con ella todo el
-problema *downstream*, por lo que el protocolo se congela por escrito (§8) en
-`data/catalog.yaml:142-155`—, y **la etiqueta se valida, no se cree**: se acepta si supera controles
+problema *downstream*, por lo que el protocolo se congela por escrito (§8) en el bloque `regimenes` de
+`data/catalog.yaml`—, y **la etiqueta se valida, no se cree**: se acepta si supera controles
 externos (coincide con las crisis catalogadas, produce estados económicamente distinguibles, no
 parpadea), no porque el EM converja.
 
@@ -57,14 +62,14 @@ causal.
 |---|---|---|---|
 | **Reglas / umbrales** | `crisis := VIX > c` o combinación de umbrales | ninguna (se impone con histéresis) | `rule_vix_threshold`: cobertura GFC+COVID 0.92, duración media 75 d, coste bajo |
 | **Fechado de ciclos** | picos y valles sobre el precio (Pagan & Sossounov, 2003) | por construcción | no implementado: exige conocer el suelo *ex post* |
-| **Clustering** | k-means / GMM sobre features, cada día independiente | **ninguna** → parpadeo | `clustering_gmm_k3`: `switching_rate` 0.126, duración 7.9 d (`memory/detectors/03_clustering_gmm.md:73-79`) |
+| **Clustering** | k-means / GMM sobre features, cada día independiente | **ninguna** · parpadeo | `clustering_gmm_k3`: `switching_rate` 0.126, duración 7.9 d (`memory/detectors/03_clustering_gmm.md:73-79`) |
 | **HMM** | estado latente markoviano + emisiones $p(\mathbf{o}_t \mid s_t)$ | explícita, en la diagonal de $A$ | `hmm_gaussian_2s`: `switching_rate` 0.100, duración 9.9 d (`memory/detectors/04_hmm_gaussian_2s.md:96-102`) |
 | **Markov-switching** | los parámetros de una regresión/VAR conmutan (Hamilton, 1989) | explícita | `markov_switching_var_2s`: mejor cobertura sistémica del banco (0.98), pero ~33 min de ajuste |
 | **Change-point** | detecta el instante del cambio de nivel/varianza (CUSUM) | máxima | `changepoint_online`: `switching_rate` 0.002, duración 436 d, especificidad 1.00 |
 | **Jump models** | clustering + penalización $\lambda$ por salto de estado (Nystrup et al.) | ajustable vía $\lambda$ | `jump_model` ($\lambda=50$): `switching_rate` 0.005, duración 176.6 d, pero cobertura Inflación 2022 solo 0.17 (`memory/detectors/09_jump_model.md:36-46`) |
 
 **La persistencia es un mando, no una virtud.** El jump model reduce el parpadeo 24× frente al GMM
-(0.126 → 0.005) y multiplica por 22 la duración de los episodios, pero pierde el mercado bajista lento
+(0.126 a 0.005) y multiplica por 22 la duración de los episodios, pero pierde el mercado bajista lento
 de 2022 (cobertura 0.17 frente a 0.87 del GMM). No hay comida gratis entre estabilidad y sensibilidad.
 
 **El HMM es el punto medio defendible**, y la elección de este taller (§8): aporta persistencia sin
@@ -106,7 +111,11 @@ semillas (42–51), todas convergieron al mismo óptimo, $\log\mathcal{L} = 3822
 `hmmlearn` devuelve suavizado en `predict_proba` y Viterbi en `predict`
 ([hmmlearn 0.3.x](https://hmmlearn.readthedocs.io/en/latest/api.html)): ambos miran el futuro. El TFM
 tuvo que sustituirlos por filtrado *forward* explícito para su evaluación causal
-(`capa1_exploracion/detectors/hmm_gaussian_2s.py:209-230`); este taller **no** lo necesita (§7.3).
+(`capa1_exploracion/detectors/hmm_gaussian_2s.py:209-230`). Este taller **no** lo necesita para la
+etiqueta —que puede mirar al futuro por definición (§7.3)— pero **sí** para la línea base de
+persistencia, que es lo que se podía saber en el instante $t$: de ahí
+`EtiquetadorRegimenes.predict_causal`, que rehace la recursión *forward* sobre las mismas emisiones
+que usa Viterbi (§7.4).
 
 **Persistencia y duración esperada.** El tiempo de permanencia en el estado $i$ es geométrico, con
 $\mathbb{E}[\text{duración}_i] = 1/(1 - a_{ii})$, y la distribución de largo plazo es el autovector
@@ -125,9 +134,11 @@ gaussiano de $K$ estados y $d$ features con covarianza `full`, el conteo de par�
 
 $$k = \underbrace{K^2 - 1}_{\text{transición}} + \underbrace{K d}_{\text{medias}} + \underbrace{K\,d(d+1)/2}_{\text{covarianzas}}$$
 
-Con $d=5$ (§8): $k = 43$ para $K=2$ y $k = 68$ para $K=3$. El salto es asumible porque $d$ es pequeño;
+Con $d=3$ (§8): $k = 21$ para $K=2$ y $k = 35$ para $K=3$. El salto es asumible porque $d$ es pequeño;
 ese es el motivo de etiquetar con un subconjunto reducido de features y no con los 20 canales de $X$
-(con $d=20$ se pasaría de 462 a 693 parámetros, insostenible con ~4.000 observaciones de train).
+(con $d=20$ se pasaría de 463 a 698 parámetros, insostenible con ~4.000 observaciones de train). El
+ajuste rechazado de cinco features (§8) costaba 43 y 68 parámetros: el coste no era su problema —lo
+fue el supuesto gaussiano—, pero conviene tener la referencia para leer la comparación del cuaderno 01.
 
 **Evidencia.** El TFM seleccionó $K$ por BIC sobre features de la misma naturaleza: $70\,975$ para
 $K=2$ frente a $63\,016$ para $K=3$, gana $K=3$ con holgura
@@ -172,51 +183,54 @@ solo tiene sentido si "crisis" es un índice estable.
 **Solución: la canonicalización económica del TFM** (`src/detector_base.py:224-294`). Ordenar por la
 media del retorno es frágil —con dos estados el z-score de dos elementos es siempre $\{-1,+1\}$, y el
 signo ruidoso de una diferencia de medias casi nula puede invertir crisis y calma—, así que el
-criterio es: (1) calcular por estado interno la media $\bar{r}_i$ y la desviación $\hat{\sigma}_i$ de
-los retornos del S&P 500 en sus días; (2) agrupar los estados en **bandas de volatilidad** de ancho
-$\text{tol} = \texttt{VOL\_CLOSE\_FRAC} \times \overline{\hat{\sigma}}$, con
-$\texttt{VOL\_CLOSE\_FRAC} = 0{,}15$ (`src/detector_base.py:57`); (3) ordenar ascendentemente por
+criterio es: (1) calcular por estado interno la media de la feature de volatilidad
+$\bar{v}_i$ y la media del retorno $\bar{r}_i$; (2) agrupar los estados en **bandas de volatilidad**
+de ancho $\text{tol} = \texttt{FRACCION\_VOL\_CERCANA} \times \overline{|v|}$, con
+$\texttt{FRACCION\_VOL\_CERCANA} = 0{,}15$; (3) ordenar ascendentemente por
 banda de volatilidad —criterio **primario**— y, **solo dentro de una misma banda**, descendentemente
 por retorno medio (menor retorno ⇒ más severo); (4) el estado canónico $0$ es el menos severo y el
-$K-1$ el más severo (`src/detector_base.py:296-299`).
+$K-1$ el más severo.
+
+Una diferencia con el TFM que conviene declarar: allí la severidad se medía con la **desviación
+típica de los retornos** del S&P 500 dentro de cada estado; aquí se mide con la **media del canal de
+volatilidad** que ya está entre las features de etiquetado (`vol_realizada_z`, y `vix_nivel_z` como
+respaldo). El criterio de orden —volatilidad primaria en bandas, retorno como desempate— es el mismo;
+lo que cambia es de dónde sale la magnitud de volatilidad, que aquí se lee directamente de una feature
+observada en vez de recalcularse sobre los retornos.
 
 La asimetría es deliberada: **la volatilidad manda y el retorno solo desempata**. El TFM llegó a este
 diseño tras comprobar que el criterio anterior invertía crisis y calma en detectores que separan solo
 en varianza (`capa1_exploracion/memory/99_conclusions.md:265-281`). Con $K=3$ el orden resultante es
 calma ≺ transición ≺ crisis, y el estado intermedio queda definido sin nombrarlo a mano.
 
+Así se implementa, en `EtiquetadorRegimenes._orden_economico` y en la traducción que hace `predict`
+(`src/regimenes.py`; fragmento ilustrativo, la versión vigente es la del módulo):
+
 ```python
-# src/regimenes.py — canonicalización económica.
-# Criterio heredado de PRUEBAS_DETECCION_REGIMENES_DE_MERCADO_TFM/src/detector_base.py:224-294
-import numpy as np
+FRACCION_VOL_CERCANA = 0.15  # dos estados tienen "vol próxima" si difieren menos de este 15 %
 
-VOL_CLOSE_FRAC = 0.15  # dos estados tienen "vol próxima" si difieren menos de este 15%
+# El orden se calcula UNA vez, dentro de fit(), y queda congelado en self.orden.
+estados = modelo.predict(features.to_numpy())
+col_vol = self._columna(["vol_realizada", "vix_nivel", "vol"])
+col_ret = self._columna(["ret_sp500", "ret", "retorno"])
 
-def orden_economico(etiquetas_internas, retornos_mercado, n_estados):
-    """orden[i] = etiqueta interna que pasa a ser el estado canónico i
-    (0 = calma, n_estados-1 = crisis)."""
-    crudas = np.asarray(etiquetas_internas)
-    r = np.asarray(retornos_mercado, dtype=float)
-    observados = np.unique(crudas)
-    # Perfil económico por estado: retorno medio y volatilidad (nan-safe).
-    medias = np.array([np.nanmean(r[crudas == e]) for e in observados])
-    sigmas = np.array([np.nanstd(r[crudas == e]) for e in observados])
-    # La volatilidad es el criterio PRIMARIO: se agrupa en bandas.
-    tol = VOL_CLOSE_FRAC * float(np.nanmean(sigmas))
-    banda = np.round(sigmas / tol) if (tol > 0 and np.isfinite(tol)) else np.zeros(len(sigmas))
-    # Asc. por banda de vol; dentro de la misma banda, desc. por retorno medio.
-    severidad = sorted(range(len(observados)), key=lambda j: (banda[j], -medias[j]))
-    orden = list(observados[severidad])
-    orden += [e for e in range(n_estados) if e not in orden]  # no observados, al final
-    return np.asarray(orden, dtype=int)
+vol_por_estado = np.array([features[col_vol].to_numpy()[estados == k].mean()
+                           for k in range(self.n_estados)])
+ret_por_estado = np.array([features[col_ret].to_numpy()[estados == k].mean()
+                           for k in range(self.n_estados)])
 
+# La volatilidad es el criterio PRIMARIO: se redondea a bandas de ancho `umbral`
+# para que estados de volatilidad equivalente caigan en la misma banda y se
+# desempaten por retorno (mayor retorno = mejor régimen = va antes).
+umbral = FRACCION_VOL_CERCANA * float(np.abs(vol_por_estado).mean())
+banda = np.round(vol_por_estado / umbral) if umbral > 0 else vol_por_estado
+self.orden = np.lexsort((-ret_por_estado, banda))
 
-def aplicar_orden(etiquetas_internas, orden, n_estados):
-    """Traduce etiquetas internas -> canónicas usando la permutación `orden`."""
-    inversa = np.empty(n_estados, dtype=int)
-    for canonico, interno in enumerate(orden):
-        inversa[interno] = canonico
-    return inversa[np.asarray(etiquetas_internas)]
+# `orden[i]` es el estado crudo que ocupa la posición canónica i; para etiquetar
+# hace falta la permutación inversa, que es lo que aplican predict/predict_causal.
+inverso = np.empty_like(self.orden)
+inverso[self.orden] = np.arange(self.n_estados)
+canonicos = inverso[crudos]
 ```
 
 ---
@@ -229,12 +243,14 @@ La regla es que $X_t$ sea medible respecto a $\mathcal{F}_t$. Se viola de tres f
 identificó en su tarea previa (`docs/context/RESUMEN_DETECCION_REGIMENES.md:176-178`) y corrigió con
 z-scores *expanding*/*rolling* (`src/features.py:56-95`); el catálogo del taller impone la misma
 política, todos los `zscore_causal` son expanding con `min_periodos: 252`
-(`data/catalog.yaml:73-104`). **(b) Estadísticos de ajuste estimados con test**: un `StandardScaler`
-ajustado con el panel completo filtra media y varianza del test hacia el train, de ahí
+(`data/catalog.yaml`, bloque `canales`). **(b) Estadísticos de ajuste estimados con test**: un
+`StandardScaler` ajustado con el panel completo filtra media y varianza del test hacia el train, de ahí
 `escalado.ajustar_con: train`. **(c) Solapamiento de ventanas entre particiones**: con ventanas de 60
 días y paso 1, dos ventanas consecutivas comparten 59 días y un *split* aleatorio metería ventanas
-casi idénticas en train y test; el taller usa *split* temporal con embargo de $60+21-1 = 80$ días
-(`data/catalog.yaml:128-133`).
+casi idénticas en train y test; el taller usa *split* temporal con embargo de **85 sesiones de
+mercado**, por encima del mínimo de $60+21-1 = 80$ que neutraliza el solape
+(`data/catalog.yaml`, bloque `particiones`, clave `embargo_sesiones`). El embargo se cuenta en
+sesiones de mercado, nunca en días naturales.
 
 **Verificación, no confianza.** El TFM no argumenta la causalidad: la contrasta. `assert_causal`
 computa las features sobre la muestra completa y sobre la muestra truncada en una fecha de corte y
@@ -301,10 +317,15 @@ extremo al menos una vez y la etiqueta dejaría de discriminar.
 $h^{-1}\sum_{u=t+1}^{t+h} P(s_u = K-1 \mid \cdot) \ge \tau$, y $\Phi_{\text{modal}}$ en otro caso. Usa
 la información blanda del HMM y da un mando explícito sobre el balance de clases vía $\tau$, a costa
 de un hiperparámetro más y de una etiqueta que ya no es función determinista de la secuencia de
-estados. Se implementa como alternativa para el análisis de sensibilidad, no por defecto.
+estados. **No está implementado**: `regimenes.regimen_dominante` solo admite `modal` y `maximo`, y
+cualquier otro valor lanza `ValueError`. Queda documentado como alternativa por si el análisis de
+sensibilidad llega a necesitarlo.
 
 Decisión: **$\Phi_{\text{modal}}$** con desempate hacia el estado más severo, coherente con
-`data/catalog.yaml:155` (`agregacion_horizonte: modal`).
+`data/catalog.yaml`, bloque `regimenes`, clave `agregacion_horizonte: modal`. Lo implementa
+`regimenes.regimen_dominante`, cuyo argumento `metodo` admite `modal` (por defecto) y `maximo`, que
+es el $\Phi_{\max}$ de (ii). El desempate hacia el estado más severo afecta a 9 de las 5.649 ventanas
+etiquetadas: es poco, pero la regla tiene que decir lo que hace.
 
 ### 7.3. La asimetría etiqueta / feature
 
@@ -326,8 +347,9 @@ la respuesta y la evaluación sería ficticia. La frontera se enuncia así:
 Tres reglas operativas se siguen de ahí:
 
 1. **El HMM se ajusta solo con el tramo de entrenamiento** (`train_hasta: "2018-12-31"`,
-   `data/catalog.yaml:130`); luego se **decodifica** toda la serie con parámetros congelados. Si se
-   ajustara con la muestra completa, las medias y covarianzas de los estados incorporarían el COVID y
+   `data/catalog.yaml`, bloque `particiones`); luego se **decodifica** toda la serie con parámetros
+   congelados. Si se ajustara con la muestra completa, las medias y covarianzas de los estados
+   incorporarían el COVID y
    2022, y las etiquetas de train reflejarían un conocimiento que en 2018 no existía.
 2. **La canonicalización también se fija con train.** El orden calma ≺ transición ≺ crisis se calcula
    con los retornos del tramo de entrenamiento y se congela; si no, el significado de la clase 2
@@ -338,6 +360,8 @@ Tres reglas operativas se siguen de ahí:
    `capa1_exploracion/detectors/hmm_gaussian_2s.py:209-230`) porque allí el estado decodificado **era
    la salida del sistema**, evaluada como alerta en tiempo real. Aquí no lo es. Requisito: el **mismo
    decodificador** en train, validación y test, para que la etiqueta signifique lo mismo en las tres.
+   La excepción, y es una sola: la **línea base de persistencia** no es etiqueta sino predicción, y
+   por tanto se decodifica con el filtro causal (§7.4).
 
 **Consecuencia que se declara en el informe.** Las etiquetas de este taller no son comparables con las
 métricas causales del TFM: al usar suavizado, los episodios salen más limpios y persistentes de lo que
@@ -352,7 +376,39 @@ predictor fortísimo del régimen dominante dentro de 21 días. **Toda evaluaci�
 *downstream* debe reportar la línea base de persistencia** $\hat{y}^{\,\text{base}}_{\text{reg}}(t) =
 s_t$ —"el régimen futuro será el actual"—. Un clasificador que no la bata no ha aprendido nada sobre
 el futuro: ha aprendido a leer el presente. Se reporta junto a la *accuracy* y al F1 de la clase
-crisis en `results/metricas/`.
+crisis en `results/metricas/`, y lo produce `evaluacion.lineas_base`.
+
+Publicar aquí un solo número es engañoso, porque la cifra depende de dos elecciones que hay que
+declarar por separado, y de una tercera que decide qué comparaciones son legítimas.
+
+**Sobre qué muestra.** El cuaderno 01 mide la persistencia sobre la **muestra completa** —accuracy
+0,821 y recall de crisis 0,821—, y esa muestra está dominada por el tramo de entrenamiento. La cifra
+que hace de barra es la de **test**, que es donde se evalúa el modelo *downstream*: allí la misma
+persistencia da 0,805 de accuracy y 0,790 de F1 macro. Las dos son correctas y no son la misma;
+citar la de muestra completa como si fuera la de test infla la referencia y confunde el margen.
+
+**Con qué decodificador.** `hmmlearn.predict` es Viterbi y nombra el régimen de hoy **mirando la
+serie entera, futuro incluido** (§3). Para construir la etiqueta eso es legítimo —la etiqueta es el
+futuro—, pero no para la línea base: la barra que hay que batir es lo que se podía saber en el
+instante $t$. El decodificador honesto es el filtro *forward*, implementado en
+`EtiquetadorRegimenes.predict_causal`, y sobre test da **0,772 de accuracy, 0,754 de F1 macro y 0,800
+de recall de crisis**. Las dos decodificaciones difieren en **321 de 5.670 sesiones (5,66 %)**.
+
+**La barra oficial es la causal.** `evaluacion.lineas_base` publica las dos filas,
+`persistencia_causal` y `persistencia_viterbi`, y marca la segunda con `usa_futuro = True`: se enseña
+al lado, explícitamente etiquetada como **no alcanzable por un modelo causal**. La diferencia no es
+cosmética: 0,790 frente a 0,754 de F1 macro sobre test son 3,6 puntos que se le regalarían a
+cualquier modelo que se comparase con la versión de Viterbi.
+
+**La banda, y qué comparaciones permite.** Las 110 ventanas de crisis del test **no son 110
+observaciones**: son **3 rachas** contiguas, que es lo que cuenta `regimenes.tramos_contiguos`.
+`evaluacion.banda_bloques` remuestrea por bloques de 81 ventanas —la huella de una ventana, $60+21$—
+y da para ese `recall_crisis` de 0,800 un intervalo de confianza del 95 % de **[0,560 – 1,000]**,
+frente al **[0,716 – 0,864]** que produce el intervalo binomial de Wilson tratando las ventanas como
+independientes: el honesto es **3,0 veces más ancho**. La consecuencia se escribe explícitamente
+porque condiciona todo el análisis del barrido: **ninguna comparación de `recall_crisis` entre dos
+recetas que difiera en menos de unos 20 puntos es distinguible del ruido**. Ordenar la tabla de
+resultados por esa columna y quedarse con la primera fila es quedarse con el ruido más afortunado.
 
 ### 7.5. Cuantificación del desbalance
 
@@ -363,169 +419,209 @@ número, no una impresión. Lo que se sabe con precisión y de dónde sale:
 |---|---|---|
 | Tiempo en el estado de riesgo, **HMM de 2 estados**, panel 2007-2026, 7 features | **25,3 %** (estacionaria 25,4 %) | `docs/context/RESUMEN_DETECCION_REGIMENES.md:102` y `:111` |
 | Duración media del episodio de riesgo, mismo modelo | 17 días (esperada 16,5) | `docs/context/RESUMEN_DETECCION_REGIMENES.md:101` y `:110` |
-| Días hábiles dentro de un episodio pico→suelo de las 10 crisis catalogadas en 2003-2026 | **17,7 %** (1.092 de 6.162) | cálculo sobre el bloque `crisis_catalog` del TFM (`data/catalog.yaml:2207-2343`), ventana 2003-01-02 – 2026-08-15 |
-| Nº de crisis en la ventana de la pista B (2003+) | **10** | `docs/GLOSARIO.md:17` y el propio `crisis_catalog` |
+| Días hábiles dentro de un episodio pico-suelo de las 10 crisis catalogadas en 2003-2026 | **17,7 %** (1.092 de 6.162) | cálculo sobre el bloque `crisis_catalog` **del TFM** (`PRUEBAS_DETECCION_REGIMENES_DE_MERCADO_TFM/data/catalog.yaml:2207-2343`), ventana 2003-01-02 – 2026-08-15 |
+| Nº de crisis en la ventana de la pista B (2003+) | **10** | `docs/GLOSARIO.md:17` del TFM y el propio `crisis_catalog` |
+
+Aviso sobre las fuentes de esta tabla: `crisis_catalog` es un bloque del catálogo **del TFM**, no del
+de este taller. El `data/catalog.yaml` del taller tiene 207 líneas y no contiene ningún catálogo de
+crisis; aquí la validación externa la hacen los tres episodios de `regimenes.EPISODIOS_REFERENCIA`
+(GFC 2008, COVID 2020, Inflación 2022), que viven en el código y no en el catálogo precisamente
+porque no son un parámetro (§8).
 
 Las dos primeras cifras corresponden a un modelo de **2 estados**, cuyo estado de riesgo agrega
 corrección y crisis. Con $K=3$ ese 25,3 % se reparte entre el estado intermedio y el extremo, de modo
 que **la clase crisis del taller será estrictamente menor**. La cota superior dura la marca el 17,7 %
-de días dentro de un episodio pico→suelo, que incluye tramos de caída lenta y ordenada que un HMM no
-clasifica como crisis. La estimación de trabajo, ~10 %, es coherente con ambos anclajes, pero **no es
-un dato: es una expectativa a verificar**. El notebook mide la fracción real, la escribe en
-`results/metricas/distribucion_regimenes.csv` y la contrasta con estos anclajes. Criterio de
-aceptación: la clase crisis debe quedar en $[0{,}03,\,0{,}20]$; por debajo del 3 % no hay ventanas
-suficientes para entrenar ni evaluar, y por encima del 20 % el etiquetado no está separando crisis de
-corrección y el argumento del taller se cae.
+de días dentro de un episodio pico-suelo, que incluye tramos de caída lenta y ordenada que un HMM no
+clasifica como crisis.
+
+**Lo medido, y de dónde sale exactamente cada cifra.** La fracción real global es del **15,8 %** y la
+imprime el `control_bloqueante` del cuaderno 01; no está en ningún CSV. El reparto por particiones,
+contado en **ventanas**, lo escribe el cuaderno **02** en
+`results/metricas/reparto_particiones.csv`:
+
+| Partición | Ventanas | Peso de la clase de crisis | Fuente |
+|---|---|---|---|
+| Train | 3.696 | **15,9 %** (587 ventanas) | `reparto_particiones.csv` (cuaderno 02) |
+| Validación | 672 | **22,0 %** | `reparto_particiones.csv` (cuaderno 02) |
+| Test | 1.052 | **10,5 %** (110 ventanas) | `reparto_particiones.csv` (cuaderno 02) |
+| Global | — | **15,8 %** | `control_bloqueante` impreso en el cuaderno 01 |
+
+`results/metricas/distribucion_regimenes.csv`, que sí escribe el cuaderno 01 con
+`regimenes.distribucion`, **no contiene esta tabla** y no debe citarse como su fuente: tiene solo las
+tres particiones —sin fila global— y cuenta **sesiones etiquetadas antes de aplicar el embargo**, de
+donde salen 15,63 % en train, 20,58 % en validación y 13,27 % en test. Los dos CSV difieren porque uno
+cuenta sesiones de un tramo de fechas y el otro las ventanas que sobreviven al embargo de D7.
+
+Tres lecturas. (i) El 15,8 % queda por debajo de la cota dura del 17,7 % y muy por debajo del 25,3 %
+del modelo de dos estados, que es lo que el argumento anterior predecía. (ii) Está dentro de la banda
+de aceptación, aunque no holgadamente: el criterio es que la clase crisis quede en
+$[0{,}03,\,0{,}20]$ —por debajo del 3 % no hay ventanas suficientes para entrenar ni evaluar, y por
+encima del 20 % el etiquetado no está separando crisis de corrección y el argumento del taller se
+cae— y lo aplica `regimenes.control_bloqueante` (§8). (iii) **La prevalencia se dobla entre validación
+y test**, 22,0 % frente a 10,5 %, y eso no es un detalle contable: cualquier métrica que dependa de
+la prevalencia —el F1 macro, señaladamente— cambia de valor al pasar de una partición a otra sin que
+el modelo haya cambiado. Es la razón por la que la arquitectura *downstream* se selecciona con
+`balanced_accuracy`, que es invariante a la prevalencia, y no con F1 macro (`src/downstream.py`,
+`METRICA_SELECCION`).
+
+La expectativa de trabajo previa, del orden del 10 %, era coherente con los anclajes pero **no era un
+dato**: el valor medido la supera en casi seis puntos, y es el medido el que gobierna. El desbalance
+sigue siendo el que justifica el taller —una clase de cada seis en train, y de cada diez en test—,
+pero conviene enunciarlo con la cifra correcta y no con la esperada.
 
 ---
 
 ## 8. Protocolo de etiquetado adoptado
 
-Especificación ejecutable, fuente de verdad de `src/regimenes.py` y de
-`notebooks/01_etiquetado_regimenes.ipynb`. Sus parámetros viven en `data/catalog.yaml:142-155`.
+Resumen del protocolo vigente, con el porqué de cada casilla. La fuente de verdad de los parámetros
+es el bloque `regimenes` de `data/catalog.yaml`, y la de la mecánica, `src/regimenes.py`; esta tabla
+los documenta, no los define.
 
 | Decisión | Valor | Justificación |
 |---|---|---|
 | Método | `hmmlearn.hmm.GaussianHMM` 0.3.3 | §2: persistencia aprendida + posteriores + BIC, coste medio |
 | Nº de estados $K$ | **3** (0 calma, 1 transición, 2 crisis) | §4 |
 | Covarianza | `full` | capta el cambio de signo de la correlación acción/bono entre regímenes |
-| Features de etiquetado ($d=5$) | `ret_sp500`, `vol_realizada_z`, `drawdown_sp500`, `spread_credito_z`, `vix_nivel_z` | subconjunto de los 20 canales de $X$; $d$ bajo para que $K=3$ sea identificable (§4) |
+| Features de etiquetado ($d=3$) | `ret_sp500`, `vol_realizada_z`, `vix_nivel_z` | subconjunto de los 20 canales de $X$; $d$ bajo para que $K=3$ sea identificable (§4) |
+| Features **rechazadas** ($d=5$, ajuste descartado) | `drawdown_sp500` y `spread_credito_z`, sumadas a las tres anteriores | incumplen el supuesto gaussiano del HMM: `spread_credito_z` **deriva** 1,17 sigmas entre las dos mitades de la muestra y `drawdown_sp500` **satura**, con el 47 % de las sesiones en el 5 % superior de su recorrido. Viven en `regimenes.features_descartadas` del catálogo |
 | Inicializaciones | semillas 42–46, se elige la de mayor $\log\mathcal{L}$ | EM multimodal (§3) |
 | `n_iter` / `tol` | 1000 / $10^{-4}$ | convergencia holgada; el ajuste es de segundos |
 | Ajuste | **solo `train`** (hasta 2018-12-31) | §7.3, regla 1 |
-| Decodificación | Viterbi sobre la serie completa, parámetros congelados | §7.3, regla 3 |
-| Canonicalización | vol primaria en bandas del 15 %, retorno como desempate | §5, `src/detector_base.py:224-294` |
+| Decodificación de la **etiqueta** | Viterbi sobre la serie completa, parámetros congelados (`predict`) | §7.3, regla 3 |
+| Decodificación de la **línea base** | filtro *forward* (`predict_causal`) | §7.4: la barra a batir es lo que se sabía en $t$ |
+| Canonicalización | vol primaria en bandas del 15 %, retorno como desempate | §5, `EtiquetadorRegimenes._orden_economico` |
 | Agregación | modal sobre $h=21$ días, empate al estado más severo | §7.2 |
 | Alineación | $y_{\text{reg}}(t)$ usa $s_{t+1..t+21}$; $X_t$ usa $t-59..t$ | sin solapamiento |
-| Embargo entre particiones | 80 días | $60 + 21 - 1$ (`data/catalog.yaml:128-133`) |
+| Embargo entre particiones | **85 sesiones de mercado** | mínimo $60 + 21 - 1 = 80$, más 5 de margen (`data/catalog.yaml`, bloque `particiones`) |
 | Semilla global | 42 | reproducibilidad |
 
+**Por qué las cinco features no son el protocolo vigente, y por qué siguen documentadas.** El ajuste
+con $d=5$ **suspende el control bloqueante** del cuaderno 01, y conviene ser exacto sobre por dónde,
+porque no es por donde se esperaría. El **peso de la clase de crisis sale al 19,0 %**, que está
+**dentro** de la banda de aceptación $[0{,}03,\,0{,}20]$: **ese control pasa**, pegado al techo, que
+ya es un aviso, pero pasa. Lo que suspende es la **cobertura del episodio de Inflación 2022: 44,0 %
+frente al 50 % exigido** —con las tres features sube al 56,5 %—. Y el estado extremo se enciende
+donde no debe: el **40 % de las sesiones de 2021** quedan marcadas como crisis, el año en que el
+S&P 500 subió un 26,9 % con volatilidad del 13 %. No es el año entero, pero son cuatro de cada diez
+sesiones de un mercado alcista y tranquilo. Nada de esto lo habría delatado el peso de la clase
+mirado por su cuenta: el control que suspende es el de cobertura, no el de prevalencia, y esa es la
+lección que hay que llevarse. La causa es la que mide `regimenes.diagnostico_features`: un HMM
+gaussiano supone emisiones normales y **estacionarias dentro de cada estado**, y dos de las cinco lo
+incumplen. `spread_credito_z` deriva porque su z-score expanding no vuelve nunca de 2008;
+`drawdown_sp500` satura contra su tope, y una masa puntual en el tope no cabe en ninguna normal. Con
+ellas dentro, el estado extremo deja de significar "mercado en tensión" y pasa a significar "estamos
+después de 2020". Retirándolas, la crisis baja al 15,8 %, el control pasa y el ajuste deja de depender
+de la inicialización. Las dos descartadas se conservan en `features_descartadas` del catálogo, y no
+borradas, porque el cuaderno 01 **reconstruye con ellas el ajuste rechazado**: la comparación entre
+los dos ajustes es el argumento (D6 en `docs/DECISIONES.md`), no un residuo histórico. Que una feature
+no sirva para *etiquetar* no dice nada sobre si sirve como *entrada*: las dos siguen entre los 20
+canales de $X$.
+
+### 8.1. La API real de `src/regimenes.py`
+
+El módulo no expone funciones sueltas: expone una **clase con estado**, `EtiquetadorRegimenes`, más
+cinco funciones libres. Que el ajuste y la permutación canónica vivan dentro del mismo objeto es lo
+que hace imposible decodificar con un orden que no sea el que se fijó al ajustar, que es el fallo que
+la canonicalización existe para evitar (§5).
+
+| Miembro | Qué hace | Contrato |
+|---|---|---|
+| `EtiquetadorRegimenes.desde_catalogo()` | construye el etiquetador leyendo el bloque `regimenes` del catálogo | ningún parámetro se escribe a mano en el cuaderno |
+| `.fit(features)` | ajusta el HMM con las semillas del catálogo, se queda el de mayor $\log\mathcal{L}$ y **calcula y congela** `self.orden` | `features` debe traer **solo el tramo de train** (§7.3, regla 1) |
+| `.predict(features)` | régimen canonizado día a día, Viterbi | serie `regimen`; mira la serie entera (§3) |
+| `.predict_causal(features)` | régimen canonizado con el filtro *forward*, información hasta $t$ y ni un día más | serie `regimen_causal`; es la que sirve para líneas base y diagnósticos en tiempo real, **no** para construir la etiqueta |
+| `.predict_proba(features)` | posterior **suavizada** por estado, columnas ya canonizadas | `p_regimen_0..2`; no vale como feature causal: cada fila incorpora información posterior |
+| `.guardar(ruta)` / `.cargar(ruta)` | serializa el etiquetador ajustado | los cuadernos posteriores reutilizan el mismo objeto, no lo reajustan |
+| `regimen_dominante(regimen_diario, horizonte, metodo)` | agrega la ventana futura a `regimen_futuro` | `modal` (por defecto) o `maximo`; §7.2 |
+| `control_bloqueante(...)` | veredicto de aceptación, fila a fila | §8.2 |
+| `diagnostico_features(...)` | puerta previa: deriva y saturación de cada candidata | §8.2 |
+| `distribucion(etiquetas, n_estados)` | reparto por régimen, absoluto y en porcentaje | la tabla de §7.5 |
+| `tramos_contiguos(etiquetas, clase)` | número de **rachas** de una clase, no de muestras | el tamaño muestral que hay que citar en cualquier intervalo (§7.4) |
+
+Dos detalles del ajuste que el código documenta y conviene no perder. `fit` silencia el aviso
+`Model is not converging` de `hmmlearn`, que aparece cuando la verosimilitud retrocede unas milésimas
+en el último paso del EM: es ruido numérico y el ajuste ganador converge, pero imprime varias líneas
+por semilla que dentro del cuaderno parecen un error grave. Y `predict_causal` reimplementa la
+recursión *forward* en logaritmos —normalizando en cada paso para que `alfa` no acumule la
+log-verosimilitud de toda la serie— sobre las mismas log-emisiones que usa Viterbi, de modo que la
+comparación entre las dos decodificaciones es limpia.
+
 ```python
-# src/regimenes.py — ajuste y decodificación.
-# CONTRATO: el HMM se ajusta SOLO con el tramo de entrenamiento; la serie completa
-# se decodifica después con los parámetros congelados (§7.3).
-import numpy as np
-import pandas as pd
-from hmmlearn.hmm import GaussianHMM
+# Uso canónico, tal y como lo hace notebooks/01_etiquetado_regimenes.ipynb.
+from src.regimenes import EtiquetadorRegimenes, regimen_dominante, control_bloqueante
 
-# Retorno del índice, vol realizada 21d, drawdown corriente, proxy de spread de
-# crédito (LQD-IEF) y NIVEL de VIX (no su variación). Todas causales (§6).
-FEATURES_ETIQUETADO = ["ret_sp500", "vol_realizada_z", "drawdown_sp500",
-                       "spread_credito_z", "vix_nivel_z"]
-N_ESTADOS = 3
-SEMILLAS = (42, 43, 44, 45, 46)
+etiquetador = EtiquetadorRegimenes.desde_catalogo().fit(features.loc[:train_hasta])
 
+regimen = etiquetador.predict(features)                  # Viterbi, alimenta la ETIQUETA
+regimen_causal = etiquetador.predict_causal(features)    # filtro forward, alimenta la LÍNEA BASE
+proba = etiquetador.predict_proba(features)              # p_regimen_0..2, suavizada
 
-def ajustar_hmm(panel_train, features=FEATURES_ETIQUETADO, n_estados=N_ESTADOS,
-                semillas=SEMILLAS, n_iter=1000, tol=1e-4):
-    """Ajusta el HMM SOLO con el tramo de entrenamiento. El EM es multimodal: se
-    prueban varias semillas y se devuelve la de mayor log-verosimilitud."""
-    O = panel_train[features].to_numpy(dtype=float)
-    if np.isnan(O).any():
-        raise ValueError("El panel de etiquetado contiene NaN: recórtalos antes de ajustar.")
-    mejor, mejor_ll = None, -np.inf
-    for semilla in semillas:
-        modelo = GaussianHMM(n_components=n_estados, covariance_type="full",
-                             n_iter=n_iter, tol=tol, random_state=semilla)
-        try:
-            modelo.fit(O)
-            ll = modelo.score(O)
-        except Exception:            # alguna semilla puede no converger
-            continue
-        if np.isfinite(ll) and ll > mejor_ll:
-            mejor, mejor_ll = modelo, ll
-    if mejor is None:
-        raise RuntimeError("Ninguna inicialización del HMM convergió.")
-    # Orden canónico fijado con los retornos del TRAMO DE ENTRENAMIENTO.
-    orden = orden_economico(mejor.predict(O), panel_train["ret_sp500"].to_numpy(), n_estados)
-    return mejor, orden, mejor_ll
-
-
-def decodificar_serie(modelo, orden, panel, features=FEATURES_ETIQUETADO, n_estados=N_ESTADOS):
-    """Decodifica TODA la serie con los parámetros congelados del train. Usa Viterbi
-    (suavizado): legítimo porque alimenta la ETIQUETA, no las features (§7.3)."""
-    O = panel[features].to_numpy(dtype=float)
-    estados = aplicar_orden(modelo.predict(O), orden, n_estados)
-    proba = modelo.predict_proba(O)[:, orden]      # columnas ya en orden canónico
-    return (pd.Series(estados, index=panel.index, name="estado"),
-            pd.DataFrame(proba, index=panel.index,
-                         columns=[f"p_estado_{i}" for i in range(n_estados)]))
+y_reg = regimen_dominante(regimen, horizonte=21, metodo="modal")
+assert control_bloqueante(regimen, y_reg, n_estados=3)["ok"].all()
 ```
 
-```python
-# src/regimenes.py — agregación de la ventana futura y controles de aceptación.
+### 8.2. Los controles que hay que pasar
 
-def etiqueta_regimen_futuro(estados, horizonte=21, criterio="modal",
-                            proba_crisis=None, umbral=0.30, n_estados=N_ESTADOS):
-    """y_reg(t) = régimen dominante en (t, t+horizonte].
+No hay una batería `C1`-`C4` de asertos: hay **dos puertas**, y ninguna es opcional.
 
-    MIRA AL FUTURO por construcción: es la variable a predecir, no una feature. Las
-    últimas `horizonte` fechas quedan a NaN (sin futuro observado). Criterios:
-    'modal' voto mayoritario (empate -> más severo); 'severidad' máximo del estado
-    en la ventana; 'umbral' crisis si la P(crisis) media >= `umbral`, si no modal.
-    """
-    s = np.asarray(estados, dtype=int)
-    y = np.full(len(s), np.nan)
-    for t in range(len(s) - horizonte):
-        futuro = s[t + 1: t + 1 + horizonte]
-        if criterio == "severidad":
-            y[t] = futuro.max(); continue
-        # Con el array de cuentas invertido, argmax devuelve el estado MÁS severo en
-        # caso de empate (no queremos perder episodios de crisis cortos).
-        cuentas = np.bincount(futuro, minlength=n_estados)
-        modal = n_estados - 1 - int(np.argmax(cuentas[::-1]))
-        if criterio == "umbral":
-            p = np.asarray(proba_crisis, dtype=float)[t + 1: t + 1 + horizonte].mean()
-            y[t] = (n_estados - 1) if p >= umbral else modal
-        else:
-            y[t] = modal
-    return pd.Series(y, index=getattr(estados, "index", None), name="y_reg")
+**Puerta previa: `diagnostico_features`.** Se ejecuta sobre las candidatas *antes* de ajustar nada,
+porque las dos patologías que rompen las emisiones gaussianas de un HMM se manifiestan igual en el
+resultado —un estado de crisis demasiado grande— y conviene medirlas antes y no diagnosticarlas
+después. Devuelve una fila por feature con `deriva` (salto de la media entre la primera y la segunda
+mitad de la muestra, en sigmas; tope 0,5), `saturacion` (porcentaje de sesiones en el 5 % superior del
+recorrido; tope 10 %) y `apta`. Es la prueba que retira `spread_credito_z` (deriva 1,17) y
+`drawdown_sp500` (saturación 47 %). Los dos umbrales son convenciones, no teoremas, y la prueba es
+necesaria pero no suficiente: una feature puede pasarla y aun así no aportar información de régimen.
 
+**Puerta de aceptación: `control_bloqueante`.** Es lo que hay que cruzar antes de entrenar ningún
+generador. Un HMM converge siempre, así que la convergencia no es evidencia de nada; lo que se
+comprueba es que los estados coinciden con crisis que de verdad ocurrieron y que la clase extrema
+tiene un tamaño con el que se pueda trabajar. Cuatro filas, y el cuaderno corta con
+`assert tabla["ok"].all()`:
 
-def controles_etiquetado(modelo, orden, estados, y_reg, retornos, n_estados=N_ESTADOS):
-    """Controles de aceptación. Ninguno es opcional: si falla uno, no se congela."""
-    A = modelo.transmat_[np.ix_(orden, orden)]     # transición en orden canónico
-    duracion = 1.0 / (1.0 - np.diag(A))
-    vals, vecs = np.linalg.eig(A.T)                # estacionaria: autovector izq.
-    pi = np.real(vecs[:, np.argmin(np.abs(vals - 1.0))]); pi = pi / pi.sum()
-    r = pd.Series(np.asarray(retornos), index=estados.index)
-    vol = np.array([r[estados == k].std() for k in range(n_estados)])
-    ret = np.array([r[estados == k].mean() for k in range(n_estados)])
-    frec = y_reg.dropna().value_counts(normalize=True).sort_index()
-    p_crisis = float(frec.get(float(n_estados - 1), 0.0))
+| Control | Criterio | Por qué ese valor |
+|---|---|---|
+| Cobertura de **GFC 2008** (2008-09-01 a 2009-03-31) | 50 % o más de sesiones en el estado de crisis | 50 y no 90 porque con tres estados parte de un episodio cae legítimamente en transición |
+| Cobertura de **COVID 2020** (2020-02-20 a 2020-04-30) | ídem | ídem |
+| Cobertura de **Inflación 2022** (2022-01-01 a 2022-10-31) | ídem | 2022 fue un mercado bajista lento, no un desplome: exigir 90 % sería exigir que el modelo se equivoque |
+| **Peso de la clase de crisis** sobre `regimen_futuro` | entre el 3 % y el 20 % | §7.5 |
 
-    # C1 la vol crece con el índice canónico; C2 el estado de crisis pierde dinero;
-    # C3 persistencia plausible; C4 desbalance dentro del rango declarado en §7.5.
-    assert np.all(np.diff(vol) > 0), f"Orden canónico incoherente: vol = {vol}"
-    assert ret[-1] < 0, f"El estado de crisis no tiene retorno negativo: {ret}"
-    assert np.all(duracion > 5), f"Regímenes demasiado cortos: {duracion}"
-    assert 0.03 <= p_crisis <= 0.20, f"Clase crisis fuera de rango: {p_crisis:.3f}"
-    return {"transmat": A, "duracion": duracion, "estacionaria": pi,
-            "vol_estado": vol, "ret_estado": ret, "frec_y_reg": frec}
-```
+Las fechas de los tres episodios son `regimenes.EPISODIOS_REFERENCIA`, y viven en el código y no en
+el catálogo **precisamente porque no son un parámetro**: moverlas para que el control pase sería el
+fraude que el control existe para impedir.
 
-**Artefactos del notebook** (versionados): `data/processed/regimenes.parquet` (`estado`,
-`p_estado_0..2`, `y_reg`); `results/metricas/distribucion_regimenes.csv` (frecuencia por clase, global
-y por partición); `results/metricas/transicion_regimenes.csv` ($A$ canónica, duraciones,
-estacionaria); `results/figures/regimenes_sp500.png` (índice coloreado por estado, con las 10 crisis
-del `crisis_catalog` marcadas) y `regimenes_timeline.png` (estados y $P(\text{crisis})$).
+Devuelve una tabla y no un booleano, a propósito: cuando falla hay que saber *qué* falló y por
+cuánto, porque de eso depende si se toca el número de estados o las features de etiquetado. Y que el
+control pase no demuestra que el etiquetado sea bueno: solo descarta las dos formas de estar mal que
+se pueden medir sin disponer de una etiqueta verdadera. En particular **no** detecta que el estado
+intermedio quede vacío en alguna partición, que es un fallo real y hay que mirarlo en `distribucion`.
 
-**Validación externa obligatoria.** El etiquetado se contrasta contra el `crisis_catalog` del TFM
-(`data/catalog.yaml:2207-2343`): se reporta el % de días en estado 2 dentro de cada episodio
-pico→suelo. Referencia de la tarea previa con 2 estados: Lehman 98,6 %, COVID 92,3 %, Inflación
-78,9 %, y los puntos ciegos Taper Tantrum 2013 (10,9 %) y Q4 2018 (20,6 %)
-(`docs/context/RESUMEN_DETECCION_REGIMENES.md:119-126`). Con $K=3$ se espera que parte de 2013 y 2018
-caiga en el estado intermedio: **eso es el resultado buscado**, no un fallo. 2013 es un punto ciego
-universal en el TFM —seis detectores independientes lo ignoran— porque fue un shock de tipos sin
-estrés sistémico de renta variable (`capa1_exploracion/memory/99_conclusions.md:229-246`); no se
-fuerza su captura.
+**Artefactos del cuaderno** (versionados): `data/processed/regimenes.parquet`, con las columnas
+`regimen`, `regimen_futuro` y `p_regimen_0..2`; `results/metricas/distribucion_regimenes.csv`
+(frecuencia por clase, global y por partición); `results/metricas/transicion_regimenes.csv`
+($A$ canónica, duraciones, estacionaria); y dos figuras,
+`results/figures/control_etiquetado.png` y `results/figures/linea_base_persistencia.png`.
+
+**Validación externa.** El etiquetado se contrasta contra los tres episodios de
+`regimenes.EPISODIOS_REFERENCIA`, no contra un catálogo de crisis: el `crisis_catalog` que aparece en
+la bibliografía interna es un bloque del catálogo **del TFM**, y el `data/catalog.yaml` de este taller
+no lo contiene. Referencia de la tarea previa con 2 estados, para leer el orden de magnitud esperable:
+Lehman 98,6 %, COVID 92,3 %, Inflación 78,9 %, y los puntos ciegos Taper Tantrum 2013 (10,9 %) y
+Q4 2018 (20,6 %) (`docs/context/RESUMEN_DETECCION_REGIMENES.md:119-126`). Con $K=3$ se espera que
+parte de 2013 y 2018 caiga en el estado intermedio: **eso es el resultado buscado**, no un fallo. 2013
+es un punto ciego universal en el TFM —seis detectores independientes lo ignoran— porque fue un shock
+de tipos sin estrés sistémico de renta variable
+(`capa1_exploracion/memory/99_conclusions.md:229-246`); no se fuerza su captura.
 
 **Limitaciones declaradas.** (1) Emisiones gaussianas con curtosis 25–40: el modelo está mal
 especificado y subestima las colas; un HMM t-Student mejoraría el BIC con holgura, a costa de la
 reproducibilidad. (2) La etiqueta se decodifica con suavizado: sale más limpia que la que vería un
-operador en tiempo real (§6, §7.3). (3) Con 10 episodios de estrés en la ventana, la clase crisis
-descansa en pocos eventos efectivos; ninguna diferencia de pocos puntos de *accuracy* entre modelos
-*downstream* es estadísticamente distinguible (`capa1_exploracion/memory/99_conclusions.md:394-405`).
+operador en tiempo real (§6, §7.3). (3) La clase crisis descansa en pocos eventos efectivos: medido
+con `regimenes.tramos_contiguos`, las ventanas de crisis forman **8 rachas en train, 2 en validación y
+3 en test**, no varios cientos de observaciones independientes. De ahí que ninguna diferencia de pocos
+puntos de *accuracy* entre modelos *downstream* sea estadísticamente distinguible
+(`capa1_exploracion/memory/99_conclusions.md:394-405`), y que el umbral concreto para el
+`recall_crisis` sea el de §7.4: unos 20 puntos.
 (4) `y_reg` no está definida en los últimos 21 días de la muestra.
 
 ---
@@ -547,7 +643,8 @@ descansa en pocos eventos efectivos; ninguna diferencia de pocos puntos de *accu
 **Fuentes internas** (TFM `PRUEBAS_DETECCION_REGIMENES_DE_MERCADO_TFM/`). Núcleo:
 `src/detector_base.py:57` (`VOL_CLOSE_FRAC`), `:224-294` (`_economic_state_order`), `:296-299`
 (`crisis_state`); `src/features.py:56-95` (`causal_zscore`), `:199-226` (`assert_causal`);
-`src/evaluation.py:32-56` (ventanas de crisis y trampas), `:141-262` (`walk_forward`). Datos:
+`src/evaluation.py:32-56` (ventanas de crisis y trampas), `:141-262` (`walk_forward`). Datos —todas
+estas rutas son del repositorio del TFM, no de este taller—:
 `data/catalog.yaml:1118-1123` (pista B, 2003+), `:2207-2343` (`crisis_catalog`: 22 crisis verificadas
 del S&P 500, 10 en la ventana 2003-2026); `docs/GLOSARIO.md:14-19` (pistas A/B), `:45-50` (regla de
 oro anti-fuga), `:52-57` (causalidad). Tarea previa:
@@ -559,7 +656,13 @@ parámetros); `memory/detectors/03_clustering_gmm.md:43-45` (BIC $K=2$ vs $K=3$)
 vs cobertura); `memory/99_conclusions.md:191-215` (qué compraba el look-ahead), `:229-246` (punto
 ciego de 2013), `:265-281` (severidad vol-primaria), `:394-405` (límite inferencial con ~4 crisis).
 
-**Configuración del taller.** `data/catalog.yaml:28-31` (ventana 2003-2026), `:73-104` (20 canales),
-`:114-118` (ventanas 60/21), `:128-133` (particiones y embargo), `:142-155` (bloque `regimenes`).
+**Configuración del taller.** Se cita por **nombre de bloque** de `data/catalog.yaml`, y no por número
+de línea, para que la referencia no caduque cada vez que el fichero se reordena: bloque `periodo`
+(ventana 2003-2026), `canales` (los 20 canales de $X$), `ventanas` (60/21/paso 1), `particiones`
+(cortes y `embargo_sesiones: 85`), `regimenes` (método, $K$, semillas, `features_etiquetado`,
+`features_descartadas` y `agregacion_horizonte`) y `escalado`. Código: `src/regimenes.py`
+(`EtiquetadorRegimenes`, `regimen_dominante`, `control_bloqueante`, `diagnostico_features`,
+`distribucion`, `tramos_contiguos`, `EPISODIOS_REFERENCIA`) y `src/evaluacion.py`
+(`lineas_base`, `linea_base_persistencia`, `banda_bloques`).
 Entorno: Python 3.13.7, `hmmlearn` 0.3.3, `scikit-learn` 1.8.0, `numpy` 2.3.4, `pandas` 2.3.3,
 CPU-only.

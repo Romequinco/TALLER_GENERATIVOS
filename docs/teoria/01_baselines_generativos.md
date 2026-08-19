@@ -86,7 +86,7 @@ En la práctica se barre $\alpha \in \{0{,}01,\ 0{,}05,\ 0{,}1,\ 0{,}25,\ 0{,}5\
 
 **Destruye.** Nada, estrictamente: *añade*. Y ahí está el problema. El soporte de la densidad generada son bolas de radio $\sim\alpha\sqrt{d}$ centradas en las muestras reales: **no hay extrapolación**. El generador no puede producir un régimen de mercado que no esté ya en entrenamiento. Para la clase "crisis", el jitter multiplica filas, no episodios.
 
-**Patología en alta dimensión.** Con $d \approx 1100$ y dimensión intrínseca $k \ll d$, una perturbación isótropa reparte su energía uniformemente: sólo una fracción $k/d$ cae dentro de la variedad de datos y $1 - k/d$ cae fuera. **La mayor parte del ruido empuja las muestras fuera de la variedad**, generando configuraciones dinámicamente imposibles (por ejemplo, un VIX que salta sin que se muevan los retornos).
+**Patología en alta dimensión.** Con $d = 1\,201$ y dimensión intrínseca $k \ll d$, una perturbación isótropa reparte su energía uniformemente: sólo una fracción $k/d$ cae dentro de la variedad de datos y $1 - k/d$ cae fuera. **La mayor parte del ruido empuja las muestras fuera de la variedad**, generando configuraciones dinámicamente imposibles (por ejemplo, un VIX que salta sin que se muevan los retornos).
 
 > Ampliación (no cubierto en clase): mitigación por jitter anisótropo. Proyectar el ruido sobre las $k$ primeras componentes principales y escalarlo por $\sqrt{\lambda_i}$ mantiene las muestras sobre la variedad: $\tilde{x} = x + \alpha\, U_k \Lambda_k^{1/2} z$ con $z \sim \mathcal{N}(0, I_k)$. Es una ablación barata que aísla el efecto "salir de la variedad".
 
@@ -116,7 +116,7 @@ $$\hat\mu = \frac{1}{n}\sum_{i=1}^{n} x^{(i)}, \qquad \hat\Sigma = \frac{1}{n-1}
 
 y el muestreo se hace por factorización $\hat\Sigma = LL^\top$, $x = \hat\mu + Lz$ con $z \sim \mathcal{N}(0, I_d)$. **No hay entrenamiento iterativo**: dos pasadas sobre los datos y una factorización. Ese es su atractivo en un entorno CPU-only, y también la razón de que §6 sea necesaria.
 
-**Coste real medido a nuestra dimensión** ($d = 1100$, $n = 4500$, CPU, numpy 2.3.4):
+**Coste real medido** en un banco de pruebas a $d = 1\,100$ y $n = 4\,500$ (CPU, numpy 2.3.4), muy cerca de nuestro bloque real ($d = 1\,201$, $n = 3\,696$ ventanas de train; a esa dimensión la matriz $d\times d$ ocupa 11,5 MB en vez de 9,7):
 
 | Operación | Tiempo | Memoria |
 |---|---|---|
@@ -142,13 +142,13 @@ El fallo de `np.linalg.cholesky` no es un inconveniente: es la **verificación**
 
 ### 3.2 Estimación de la covarianza en alta dimensión
 
-Nuestro bloque tiene $d \approx 1100$ dimensiones y disponemos de $n \approx 4000$–$5000$ muestras de entrenamiento, y de sólo **unos cientos en la clase minoritaria**. La covarianza muestral tiene $d(d+1)/2 \approx 605\,000$ parámetros libres estimados con $n\cdot d \approx 5\cdot10^6$ números.
+Nuestro bloque tiene $d = 1\,201$ dimensiones y disponemos de $n = 3\,696$ ventanas de entrenamiento, de las que sólo **587 son de la clase minoritaria**. La covarianza muestral tiene $d(d+1)/2 = 721\,801$ parámetros libres estimados con $n\cdot d \approx 4{,}4\cdot10^6$ números: apenas seis números por parámetro.
 
 > Ampliación (no cubierto en clase): toda esta subsección. El notebook del profesor usa `np.cov` directamente porque su bloque tiene $61\times23 = 1403$ dimensiones con $\sim14\,000$ muestras y canales homogéneos (todos log-retornos). Nuestro caso es más adverso.
 
-**Problema 1: rango deficiente.** $\mathrm{rank}(\hat\Sigma) \le \min(n-1, d)$. Para la clase crisis con $n_c \approx 450 < d = 1100$, $\hat\Sigma$ es **singular por construcción**, con al menos $\approx 650$ autovalores nulos.
+**Problema 1: rango deficiente.** $\mathrm{rank}(\hat\Sigma) \le \min(n-1, d)$. Para la clase crisis con $n_c = 587 < d = 1\,201$, $\hat\Sigma$ es **singular por construcción**, con al menos $615$ autovalores nulos.
 
-**Problema 2: sesgo espectral aunque $n > d$.** Con $n = 4500 > d = 1100$, el ratio $q = d/n \approx 0{,}24$ distorsiona el espectro: para datos blancos los autovalores muestrales se dispersan sobre $[(1-\sqrt{q})^2, (1+\sqrt{q})^2] \approx [0{,}26,\ 2{,}23]$ en vez de concentrarse en 1. El autovalor mínimo se subestima en un factor 4 y el máximo se sobreestima en un factor 2,2. Los autovalores pequeños están sistemáticamente **sesgados hacia abajo**, la dirección peligrosa para muestrear.
+**Problema 2: sesgo espectral aunque $n > d$.** Con $n = 3\,696 > d = 1\,201$, el ratio $q = d/n \approx 0{,}32$ distorsiona el espectro: para datos blancos los autovalores muestrales se dispersan sobre $[(1-\sqrt{q})^2, (1+\sqrt{q})^2] \approx [0{,}18,\ 2{,}47]$ en vez de concentrarse en 1. El autovalor mínimo se subestima en un factor 5,4 y el máximo se sobreestima en un factor 2,5. Los autovalores pequeños están sistemáticamente **sesgados hacia abajo**, la dirección peligrosa para muestrear.
 
 **Problema 3: qué hace realmente `np.random.multivariate_normal` con una covarianza no definida positiva.** Comprobado empíricamente con numpy 2.3.4:
 
@@ -276,7 +276,7 @@ def muestrear_condicional(modelos, n_por_clase, rng):
     return np.concatenate(Zs), np.concatenate(ys)
 ```
 
-Ventajas: las etiquetas son exactas por construcción; permite **sobremuestrear la clase crisis** de forma controlada, que es la aplicación más plausible de datos sintéticos aquí; y captura que la matriz de correlaciones cambia entre regímenes (las correlaciones entre activos aumentan en crisis), algo que el gaussiano único promedia y pierde. Coste: la clase minoritaria tiene $n_c \approx 450 \ll d$, lo que fuerza el método factorial. Es justo donde el modelo es más frágil y más útil, así que hay que reportar $k$, $\rho$ o $\epsilon$ **por clase**, no sólo globalmente.
+Ventajas: las etiquetas son exactas por construcción; permite **sobremuestrear la clase crisis** de forma controlada, que es la aplicación más plausible de datos sintéticos aquí; y captura que la matriz de correlaciones cambia entre regímenes (las correlaciones entre activos aumentan en crisis), algo que el gaussiano único promedia y pierde. Coste: la clase minoritaria tiene $n_c = 587 \ll d$, lo que fuerza el método factorial. Es justo donde el modelo es más frágil y más útil, así que hay que reportar $k$, $\rho$ o $\epsilon$ **por clase**, no sólo globalmente.
 
 ---
 
@@ -302,7 +302,7 @@ $$\hat\gamma^*(k) \approx (1-p)^{|k|}\,\hat\gamma(k),$$
 
 es decir, la dependencia se atenúa geométricamente con escala característica $b$. Toda dependencia a plazo mucho mayor que $b$ se pierde.
 
-**Elección de $b$.** Dos criterios en tensión. El estadístico clásico (Politis y White 2004) da un óptimo del orden de $b \propto T^{1/3}$ para estimar medias: con $T\approx8000$ días son $\sim20$ días, demasiado corto. El estructural de nuestro problema: cada muestra abarca $60+21=81$ días, y con bloques de longitud media $b$ cada ventana contiene en promedio $81/b$ uniones artificiales — con $b=20$ hay 4 discontinuidades por ventana; con $b=81$, una; con $b=252$, un tercio. Prevalece el estructural: **$b \in [81, 252]$**, entre la longitud completa de la muestra y un año bursátil. Se reporta la sensibilidad a $b$ igual que la sensibilidad a $\alpha$ en el jitter.
+**Elección de $b$.** Dos criterios en tensión. El estadístico clásico (Politis y White 2004) da un óptimo del orden de $b \propto T^{1/3}$ para estimar medias: con $T\approx5\,700$ sesiones son $\sim18$ días, demasiado corto. El estructural de nuestro problema: cada muestra abarca $60+21=81$ días, y con bloques de longitud media $b$ cada ventana contiene en promedio $81/b$ uniones artificiales — con $b=20$ hay 4 discontinuidades por ventana; con $b=81$, una; con $b=252$, un tercio. Prevalece el estructural: **$b \in [81, 252]$**, entre la longitud completa de la muestra y un año bursátil. Se reporta la sensibilidad a $b$ igual que la sensibilidad a $\alpha$ en el jitter.
 
 ```python
 def bootstrap_estacionario(panel, T_out, b, rng):
@@ -349,7 +349,7 @@ $$\mathrm{Cov}(r_i^2, r_j^2) = 2\,\Sigma_{ij}^2.$$
 
 Como la autocovarianza de los retornos es prácticamente nula ($\Sigma_{ij}\approx 0$ para $i\ne j$ en el eje temporal), el modelo produce $\mathrm{Cov}(r_i^2, r_j^2)\approx 0$: **cero clustering de volatilidad**. El clustering es una dependencia entre *magnitudes*, que la covarianza no puede representar. Es una predicción verificable y da la gráfica de diagnóstico más rentable del trabajo: autocorrelograma de $\lvert r\rvert$ para datos reales, gaussianos y bootstrap superpuestos.
 
-**Matiz importante en nuestro panel.** Nuestro bloque incluye canales explícitos de volatilidad (VIX, MOVE, volatilidad realizada, drawdown). El gaussiano **sí** estima y reproduce sus autocovarianzas, de modo que generará trayectorias de VIX persistentes y suaves. Lo que no puede capturar es el **acoplamiento** entre el nivel del VIX y la *amplitud* de los retornos, porque es una dependencia entre un nivel y una magnitud. Modo de fallo concreto y observable: ventanas sintéticas con VIX alto y sostenido pero retornos de amplitud normal, y viceversa. Merece una figura.
+**Matiz importante en nuestro panel.** Nuestro bloque incluye canales explícitos de volatilidad (nivel y variación del VIX, volatilidad realizada, drawdown). El gaussiano **sí** estima y reproduce sus autocovarianzas, de modo que generará trayectorias de VIX persistentes y suaves. Lo que no puede capturar es el **acoplamiento** entre el nivel del VIX y la *amplitud* de los retornos, porque es una dependencia entre un nivel y una magnitud. Modo de fallo concreto y observable: ventanas sintéticas con VIX alto y sostenido pero retornos de amplitud normal, y viceversa. Merece una figura.
 
 Por la misma razón, el **efecto apalancamiento** queda parcialmente capturado: la covarianza cruzada $\mathrm{Cov}(r_t, \mathrm{RV}_{t+k})$ entre el canal de retornos y el de volatilidad realizada **sí** se estima y se reproduce, porque ahí la volatilidad es una variable explícita del panel y no una magnitud implícita. Es un caso donde la ingeniería de características rescata parcialmente al modelo.
 
@@ -408,15 +408,15 @@ En el README debe constar explícitamente que los baselines no tienen curva de l
 
 ## 7. Aplicación a nuestro problema
 
-**Objeto a generar.** El bloque conjunto $[X; y_{\text{reg}}; y_{\text{vol}}]$, siguiendo la estrategia de aplanado de `docs/material_clase/notebooks/Taller_Gaussian_solution.ipynb` y la opción OPT2 de la lámina 8 (generar pares entrada-salida, no sólo entradas). $X$ son 60 días × ~18 canales de un panel híbrido (S&P500, 9 SPDR sectoriales, VIX, MOVE, spreads de crédito, pendiente de curva, drawdown, volatilidad realizada): $\approx 1080$ dimensiones aplanadas más las etiquetas, $d \approx 1100$.
+**Objeto a generar.** El bloque conjunto $[X; y_{\text{vol}}]$ —con $y_{\text{reg}}$ aparte, como condición—, siguiendo la estrategia de aplanado de `docs/material_clase/notebooks/Taller_Gaussian_solution.ipynb` y la opción OPT2 de la lámina 8 (generar pares entrada-salida, no sólo entradas). $X$ son 60 días × 20 canales derivados de un panel híbrido de 15 activos (S&P 500, 9 SPDR sectoriales, VIX, tesoro a 20 y a 10 años, crédito grado de inversión e índice dólar): once canales de retornos (índice, nueve sectores y dólar) y nueve derivados (nivel y variación del VIX, volatilidad realizada, drawdown, momento, spread de crédito, pendiente de curva, correlación acción-bono y dispersión sectorial). Son 1.200 dimensiones aplanadas más la etiqueta de regresión, $d = 1\,201$.
 
 **Paso obligatorio previo: estandarización por canal.** Es la diferencia principal con el notebook del profesor, donde todos los canales son log-retornos de la misma escala. Sin estandarizar, la covarianza queda dominada por los canales de mayor escala y el shrinkage hacia $\mu I$ carece de sentido (el objetivo presupone escalas comparables), y un $\sigma$ único de jitter es ruido despreciable para unos canales y destructivo para otros. El `StandardScaler` se ajusta **sólo con el conjunto de entrenamiento**; la inversión se hace después de generar. Ajustarlo sobre validación o test es fuga de información y anula la comparación.
 
 | Generador | Configuración | Justificación |
 |---|---|---|
 | Jitter | $\sigma_j=\alpha\hat\sigma_j$; barrido $\alpha\in\{0{,}01, 0{,}05, 0{,}1, 0{,}25, 0{,}5\}$; punto de operación $\alpha\in[0{,}05, 0{,}15]$ | §2.1: atenuación de correlación $\le 2\,\%$ y dilución de curtosis $<1\,\%$; validar con el criterio del vecino más próximo |
-| Gaussiano global | Ledoit-Wolf ($n\approx4500\approx4d$), Cholesky cacheado | §3.2: $n>2d$, LW aplicable; reportar $\rho$ |
-| Gaussiano condicional | Un modelo por régimen. Mayoritarias: LW. Crisis ($n_c\approx450<d$): factorial con $k\in[20,50]$ | §3.2: la muestral es singular; sin esto el "gaussiano" devuelve combinaciones afines de los datos reales sin avisar |
+| Gaussiano global | Ledoit-Wolf ($n=3\,696\approx3d$), Cholesky cacheado | §3.2: $n>2d$, LW aplicable; reportar $\rho$ |
+| Gaussiano condicional | Un modelo por régimen. Mayoritarias: LW. Crisis ($n_c=587<d$): factorial con $k\in[20,50]$ | §3.2: la muestral es singular; sin esto el "gaussiano" devuelve combinaciones afines de los datos reales sin avisar |
 | Bootstrap por bloques | Estacionario, $b\in\{81, 126, 252\}$ días, remuestreo de fechas completas, etiquetas recalculadas | §4.2: $b\ge81$ para limitar a $\le1$ unión por ventana |
 
 **Manejo de las etiquetas.** $y_{\text{reg}}$ es categórica: se genera siempre con modelos condicionales, nunca por `argmax` de una codificación *one-hot* generada. $y_{\text{vol}}$ es continua y positiva: conviene generarla en escala logarítmica y deshacer la transformación al final, para que el gaussiano no produzca volatilidades negativas. El jitter y el bootstrap no tienen este problema (copian o recalculan valores reales); el gaussiano sí, y hay que verificarlo contando cuántas muestras generadas violan restricciones físicas (volatilidad negativa, VIX negativo). **Ese recuento es en sí mismo una métrica de calidad reportable.**

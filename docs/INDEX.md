@@ -9,8 +9,8 @@ como es.
 
 | Documento | Para qué |
 |---|---|
-| [`../README.md`](../README.md) | Visión general, arranque rápido y reparto del trabajo |
-| [`DECISIONES.md`](DECISIONES.md) | Las 22 decisiones de diseño con su justificación. **Léelo antes de tocar nada** |
+| [`../README.md`](../README.md) | Visión general, arranque rápido y estado del proyecto |
+| [`DECISIONES.md`](DECISIONES.md) | Todas las decisiones de diseño, numeradas D1 en adelante, con su justificación. **Léelo antes de tocar nada** |
 | [`enunciado/Taller_B5_T1.pdf`](enunciado/Taller_B5_T1.pdf) | Enunciado oficial: requisitos de la entrega y criterios de evaluación |
 
 ## Teoría de modelos generativos
@@ -47,6 +47,12 @@ proyecto, en formato ADR: contexto, problema, opciones consideradas y decisión
 adoptada. `DECISIONES.md` es el resumen operativo; los ADR guardan el
 razonamiento largo.
 
+Hoy hay uno:
+
+| Documento | Qué fija |
+|---|---|
+| [`decisions/ADR-001-problema-y-diseno-experimental.md`](decisions/ADR-001-problema-y-diseno-experimental.md) | Por qué el problema es la predicción de régimen y no el ejemplo del material guiado, y qué diseño experimental se deriva de esa elección. De aquí salen D1, D2, D3, D5 y D13 |
+
 ## Material de clase
 
 `material_clase/` contiene las diapositivas y notebooks originales del máster.
@@ -61,12 +67,23 @@ que hay que entregar.
 
 ## Cómo leer esto según lo que vayas a hacer
 
+**Vas a tocar los datos.** Lee **D23** de `DECISIONES.md` —los datos se auditan,
+no se limpian— y `src/calidad.py`, que es el módulo que gobierna qué se le hace y
+qué no se le hace al panel: once controles de integridad, cinco **invariantes**
+que lanzan excepción y seis **avisos** que nunca abortan, y la misma auditoría
+sirve para un panel sintético en el notebook 14. Ninguna técnica de limpieza
+—imputación, winsorización, recorte de atípicos, suavizado, remuestreo— entra en
+este repositorio: D23 mide, una por una, qué destruyen de lo que el trabajo
+pretende medir. La política de huecos de `data/catalog.yaml` es la otra mitad de
+la misma historia.
+
 **Vas a entrenar un generador.** Lee `DECISIONES.md`, el documento de teoría de
 tu familia, y `src/generadores/base.py`. Las secciones de "diagnóstico de
 convergencia" y "aplicación a nuestro problema" son las que necesitas.
 
 **Vas a montar los datasets o el barrido.** Lee `DECISIONES.md` (en especial D7,
-D13 y D14) y el checklist anti-fuga de `metodologia/riesgos_datos_sinteticos.md`.
+D13 y D14 para montarlo, y D21 y D24 para saber cómo se leen las cifras que
+salen) y el checklist anti-fuga de `metodologia/riesgos_datos_sinteticos.md`.
 
 **Vas a preparar la presentación.** `DECISIONES.md` tiene la justificación de
 cada elección, y las secciones de aplicación de cada documento de teoría tienen

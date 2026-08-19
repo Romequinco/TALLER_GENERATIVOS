@@ -2,9 +2,9 @@
 
 Documento metodológico del taller B5-T1. Fija el protocolo con el que se comparan los siete generadores (jitter, gaussiano multivariante, cGAN, cVAE, RBIG, flow matching, DDIM) sobre el mismo bloque de datos.
 
-**Objeto evaluado.** Bloque conjunto $[\mathbf{X}; y_{\text{reg}}; y_{\text{vol}}]$ con $\mathbf{X} \in \mathbb{R}^{60 \times 18}$ (60 días × ~18 canales de un panel híbrido de mercado), aplanado a $d \approx 1.100$ dimensiones, con $n \approx 4.000$–$5.000$ muestras reales. Tarea downstream principal: clasificación del régimen de mercado a 21 días (3 clases, crisis $\approx 10\%$). Secundaria: regresión de volatilidad realizada.
+**Objeto evaluado.** Bloque conjunto $[\mathbf{X}\ \text{aplanada};\ y_{\text{vol}}]$ **condicionado a** $y_{\text{reg}}$, con $\mathbf{X} \in \mathbb{R}^{60 \times 20}$ (60 días × 20 canales de un panel híbrido de mercado). El bloque tiene por tanto $60 \times 20 + 1 = \mathbf{1.201}$ dimensiones, con $n \approx 4.000$–$5.000$ muestras reales (3.696 ventanas en train). El régimen va como **condición** y no como una dimensión más del vector generado: si fuera una componente del bloque, la proporción de clases sintéticas replicaría el desbalance del train y no se podría sobre-generar la clase de crisis, que es justamente el objetivo del trabajo (D8). Tarea downstream principal: clasificación del régimen de mercado a 21 días (3 clases; la de crisis pesa un 15,9 % en train y un 10,5 % en test). Secundaria: regresión de volatilidad realizada.
 
-**Restricción dura.** Todo el cómputo es CPU-only. Cualquier métrica cuyo coste crezca peor que $O(n^2)$ en el espacio original de 1.100 dimensiones queda fuera o se calcula sobre una proyección reducida.
+**Restricción dura.** Todo el cómputo es CPU-only. Cualquier métrica cuyo coste crezca peor que $O(n^2)$ en el espacio original de 1.201 dimensiones queda fuera o se calcula sobre una proyección reducida.
 
 ## 1. Los tres ejes: fidelidad, utilidad y privacidad/diversidad
 
@@ -40,33 +40,55 @@ Se definen cuatro entrenamientos con el **mismo** modelo downstream, la misma pa
 
 La métrica primaria es el **ratio de utilidad** $\rho = \text{TSTR}/\text{TRTR}$: $\rho \geq 0{,}9$ indica sustituibilidad práctica; $\rho \in [0{,}7 , 0{,}9)$ utilidad parcial (aumentación sí, sustitución no); $\rho < 0{,}7$ el generador no captura la relación condicional.
 
-Lecturas cruzadas: **TSTR bajo + TRTS alto** → el sintético es un subconjunto simplificado del real (mode collapse); el modelo real lo clasifica sin esfuerzo pero no enseña las regiones difíciles. **TSTS ≫ TSTR** → el sintético es internamente consistente pero desplazado respecto al real.
+Lecturas cruzadas: **TSTR bajo + TRTS alto** · el sintético es un subconjunto simplificado del real (mode collapse); el modelo real lo clasifica sin esfuerzo pero no enseña las regiones difíciles. **TSTS ≫ TSTR** · el sintético es internamente consistente pero desplazado respecto al real.
 
 ### 2.2 El eje central del taller: la curva de mezcla
 
-El experimento principal no es TSTR puro sino la curva de rendimiento downstream frente a la fracción sintética $f$ del conjunto de entrenamiento:
+El experimento principal no es TSTR puro sino la curva de rendimiento downstream frente a la cantidad de sintético **añadida** al conjunto real. Es una **aumentación**, no una sustitución: el conjunto real no se toca y el tamaño total crece con el ratio.
 
-$$\mathcal{D}_{\text{train}}(f) = (1-f)\cdot n \ \text{reales} \ \cup \ f\cdot n \ \text{sintéticos}, \qquad f \in \{0;\ 0{,}25;\ 0{,}5;\ 0{,}75;\ 1\}$$
+$$\mathcal{D}_{\text{train}}(n_r, \rho) \;=\; n_r \ \text{reales} \ \cup \ \lfloor \rho\, n_r \rceil \ \text{sintéticos}$$
 
-Dos variantes con lecturas distintas: **tamaño total constante** (se sustituye real por sintético; mide sustituibilidad, con $f=0$ = TRTR y $f=1$ = TSTR) y **aumentación** (se añade sintético al real completo; mide si aporta señal nueva, que es lo relevante para la clase crisis). En ambos casos se repite con ≥3 semillas y se reporta media ± desviación: con $n \approx 4.000$ y una clase al 10%, la varianza entre semillas es del mismo orden que las diferencias entre generadores. El comportamiento típico es no monótono: sube con poco sintético y se degrada cuando el sintético domina el entrenamiento.
+La rejilla la genera `mezclas.rejilla` y tiene **tres** ejes, no uno:
+
+| Eje | Valores | Constante en `src/mezclas.py` |
+|---|---|---|
+| Reales disponibles $n_r$ | 250, 500, 1.000, 2.000 y **todos** (3.696 ventanas de train) | `NIVELES_REALES` |
+| Ratio sintético/real $\rho$ | 0, 0,5, 1, 2 y 5 | `RATIOS_SINTETICOS` |
+| Política de reparto por clase | `proporcional`, `equilibrado` | `POLITICAS` |
+
+**Por qué se añade en vez de sustituir.** La variante de tamaño total constante mide sustituibilidad, y es una pregunta legítima, pero deja el efecto del tamaño muestral confundido con el de la mezcla. Aquí ese efecto se aísla con el **segundo eje**, que es el que de verdad importa: el material del taller muestra que el beneficio del sintético se concentra en el régimen de pocos datos y se desvanece —o se vuelve negativo— cuando ya hay muchos reales. Barrer solo la proporción de sintéticos con todos los reales disponibles produciría una línea plana y la conclusión errónea de que los generadores no sirven. TSTR puro sigue siendo interpretable como el caso límite y se reporta aparte.
+
+**Las dos políticas de reparto** son lo que separa dos hipótesis distintas: `proporcional` replica el desbalance real y mide el efecto de "más datos" sin más; `equilibrado` concentra el sintético en las clases minoritarias hasta acercarlas a la mayoritaria y mide el efecto de "más datos donde hacen falta". La diferencia entre ambas es la contribución atribuible al rebalanceo (D14). El reparto por clase lo calcula `mezclas.repartir` con el método del mayor resto, para que la suma sea exactamente el número pedido.
+
+Las combinaciones con $\rho = 0$ no dependen del generador ni de la política —son solo datos reales— y `mezclas.rejilla` las emite una sola vez bajo el generador nominal `solo_real`, en vez de reentrenar el mismo modelo catorce veces por nivel de reales. Cada punto se repite con al menos 3 semillas y se reporta media ± desviación: con una clase de crisis en torno al 16 % en train, la varianza entre semillas es del mismo orden que las diferencias entre generadores. El comportamiento típico es no monótono: sube con poco sintético y se degrada cuando el sintético domina el entrenamiento.
 
 ### 2.3 Métricas downstream con clases desbalanceadas
 
-**El accuracy simple no se reporta como métrica principal.** Con 3 clases y crisis al ~10%, un clasificador que nunca prediga crisis pierde como máximo 10 puntos de accuracy y, si la clase mayoritaria pesa ~55%, puede alcanzar 0,90 siendo inservible para el único caso que importa. Peor: el modo de fallo más probable de un generador — colapso de la moda minoritaria — es **invisible** en accuracy y catastrófico en cualquier métrica por clase. Un TSTR con accuracy 0,88 frente a un TRTR de 0,91 parece excelente y puede esconder un recall de crisis que cae de 0,55 a 0,04.
+**El accuracy simple no se reporta como métrica principal.** Con 3 clases y la de crisis al 10,5 % en test, un clasificador que nunca prediga crisis pierde como máximo 10,5 puntos de accuracy y puede rondar 0,90 siendo inservible para el único caso que importa. Peor: el modo de fallo más probable de un generador — colapso de la moda minoritaria — es **invisible** en accuracy y catastrófico en cualquier métrica por clase. Un TSTR con accuracy 0,88 frente a un TRTR de 0,91 parece excelente y puede esconder un recall de crisis que cae de 0,55 a 0,04.
+
+Hay además un motivo específico de este panel para desconfiar de las métricas sensibles a la prevalencia: la clase de crisis pesa un **22,0 % en validación** y un **10,5 % en test**, más del doble. Cualquier métrica cuyo valor dependa de cuántas muestras hay de cada clase cambia al pasar de una partición a otra sin que el modelo haya cambiado.
 
 Métricas obligatorias, en este orden: (1) **F1-macro**, media no ponderada de los $F_1$ por clase, donde cada clase pesa igual con independencia de su prevalencia — es la métrica de titular; (2) **balanced accuracy**, media de los recalls por clase, equivalente al accuracy bajo reponderación a clases uniformes;[^brodersen] (3) **recall de la clase crisis**, la métrica operativa, que un generador debe preservar o mejorar para ser aceptable; (4) **matriz de confusión completa** en el informe, no agregada; y (5) **accuracy** como columna de contexto, nunca como criterio de selección.
 
 Para la tarea secundaria (volatilidad realizada) se usa MAE y $R^2$ sobre `real_test` con el mismo esquema TSTR/TRTR, más el MAE restringido al decil superior de volatilidad, que es donde el sintético suele fallar.
 
-**Baselines contra los que se compara la aumentación.** El sintético no compite contra "no hacer nada", sino contra las dos formas baratas de tratar el desbalance: reponderación por clase (`class_weight="balanced"`) y sobremuestreo por interpolación (SMOTE). Si la curva de mezcla no supera a ambos en recall de crisis, el generador no aporta nada operativo. El modelo downstream de la comparativa principal se entrena **sin** reponderación, porque reponderar enmascara justo el efecto que se quiere medir.
+**Baselines contra los que se compara la aumentación.** El sintético no compite contra "no hacer nada", sino contra las formas baratas de tratar el desbalance: reponderación por clase y sobremuestreo por interpolación (SMOTE). Si la curva de mezcla no supera a ambos en recall de crisis, el generador no aporta nada operativo.
 
-**Elección del modelo downstream bajo restricción de CPU.** La curva de mezcla exige $5 \times 3 = 15$ ajustes por generador, 105 en total. Sobre 4 núcleos, un `HistGradientBoostingClassifier` tarda del orden de decenas de segundos por ajuste incluso con matrices pequeñas (sobrecarga fija de OpenMP más coste lineal en el número de variables), lo que sitúa la comparativa completa en varias horas. Se fija por tanto una **regresión logística multinomial regularizada sobre variables estandarizadas** como modelo downstream principal (segundos por ajuste, determinista, sin hiperparámetros que sintonizar por generador), y se usa el boosting solo como control de robustez en $f \in \{0, 1\}$.
+**Sobre la reponderación, con un matiz que importa.** El criterio **por defecto** es entrenar el modelo downstream **sin** reponderar, porque reponderar enmascara justo el efecto que se quiere medir: si la pérdida ya compensa el desbalance, el sintético de crisis no tiene margen que ocupar y la comparación entre generadores mide otra cosa. Pero eso no convierte la reponderación en una rama opcional: **D15 la hace obligatoria como comparación**. El barrido incluye una versión con `class_weight` inverso a la frecuencia de clase y **sin ningún dato sintético**, que es lo que implementa `downstream.pesos_por_clase` y activa `downstream.entrenar(..., usar_pesos=True)`. La razón es directa: si reponderar la pérdida iguala al mejor generador, los datos sintéticos no aportan nada que no se consiguiera con una línea de código, y el trabajo honesto es decirlo. Las dos ramas conviven sin contradicción: la principal va sin pesos, y la reponderada es el listón contra el que se lee su resultado.
 
-**Etiquetas del sintético.** Los generadores condicionales (cGAN, cVAE) permiten fijar la proporción de clases. Los incondicionales (gaussiano multivariante, RBIG, flow matching, DDIM sobre el bloque conjunto) generan la etiqueta como parte del bloque: hay que recuperarla, verificar que la proporción de crisis se mantiene en el entorno del 10% y reportar la proporción efectiva. Un generador que emita 2% de crisis está fallando aunque su TSTR parezca razonable.
+**Elección del modelo downstream.** No se decide en este documento. La fija el enunciado del taller —se busca una arquitectura válida con datos reales y después se entrena esa misma arquitectura, sin tocarla, sobre cada dataset— y la materializa D20: se **busca** en el cuaderno 03 entre las seis candidatas de `downstream.CANDIDATAS`, gana **`lineal`** —una multinomial de 3.603 parámetros sobre la ventana aplanada, **sin ninguna capa convolucional**— y es esa la que queda **congelada** en `models/downstream/arquitectura.json` (`"filtros": []`, `"unidades_densa": 0`) junto con su presupuesto de optimización (60 épocas, lote 256, paciencia 12). Congelar el presupuesto no es un adorno: si cambiara entre versiones no se sabría si la diferencia viene de los datos o de haber entrenado más.
+
+La regresión logística **no está descartada**: es una de esas seis candidatas, la llamada `lineal`, y existe con un papel preciso. `Arquitectura(filtros=(), unidades_densa=0)` deja el modelo sin convoluciones, es decir, una regresión logística multinomial sobre la ventana aplanada, con el mismo dropout que las demás para que la comparación no le regale ventaja. Es el **control de si la convolución aporta algo**: si empata con las convolucionales, toda la troncal es coste sin contrapartida, y eso es un resultado publicable. Las otras cinco mueven **un** eje cada una respecto a `cnn_base` —capacidad arriba (`cnn_ancha`) y abajo (`cnn_pequena`), campo receptivo (`cnn_kernel7`) y agregación temporal (`cnn_pool_global`)—, de modo que la diferencia de puntuación se pueda atribuir a ese eje y no a tres cambios simultáneos.
+
+La selección se hace **sobre validación**, con tres semillas por candidata, y decide `balanced_accuracy` con `recall_crisis` como desempate, no el F1 macro. La razón es medible y es la prevalencia: con un 22,0 % de crisis en validación y un 10,5 % en test, el F1 macro invierte el orden del 8,1 % de los pares de candidatas, mientras que la balanced accuracy —media de los recalls por clase— es exactamente invariante. El F1 macro se sigue reportando; simplemente no decide.
+
+**El argumento de coste que sostenía la elección anterior ya no se sostiene.** Una versión previa de esta sección fijaba la logística como modelo principal alegando que un modelo más caro situaría la comparativa en varias horas. La medición sobre esta máquina, con las 3.696 ventanas de train y validación real, es de **unos 2,4 segundos por época** con lote 256 —3,30 s con lote 64 y 2,34 s con lote 512—, y la parada temprana corta muy por debajo de las 60 épocas del presupuesto. Cualquiera de las cinco CNN cabe holgadamente en el presupuesto de CPU del taller, así que elegir el modelo por su coste habría sido elegirlo por la razón equivocada. Que la búsqueda del cuaderno 03 acabara eligiendo `lineal` no rehabilita aquel argumento: gana por balanced accuracy sobre validación, no por barata, y el desempate por coste de D20 ni siquiera llega a aplicarse.
+
+**Etiquetas del sintético.** Los generadores condicionales (cGAN, cVAE) permiten fijar la proporción de clases. Los que no admiten condicionamiento nativo (gaussiano multivariante, RBIG) se ajustan con un modelo independiente por régimen, de modo que la etiqueta de cada muestra la fija el modelo que la produjo. En todos los casos hay que verificar la proporción efectiva del banco generado y reportarla: el reparto por clase que pide cada receta lo decide `mezclas.repartir`, y si el banco no tiene muestras de un régimen, `mezclas.montar` avisa y omite la cuota en vez de rellenarla en silencio.
 
 ### 2.4 Limitaciones de TSTR
 
-- **Depende del modelo downstream.** El ranking puede invertirse al cambiar de regresión logística a gradient boosting. Se fija **un** modelo para toda la comparativa y se documenta; opcionalmente se repite con un segundo como control.
+- **Depende del modelo downstream.** El ranking puede invertirse al cambiar de modelo: de la `lineal` congelada a cualquiera de las cinco CNN de la búsqueda, o a un gradient boosting. Por eso se fija **un** modelo para toda la comparativa y se congela en disco (D20); las cinco convolucionales del cuaderno 03 quedan disponibles en `downstream.CANDIDATAS` como control de robustez.
 - **No detecta memorización.** Un generador que devuelva copias de `real_train` obtiene el TSTR máximo posible. TSTR solo es interpretable junto al test de la sección 4.
 - **Alto TSTR no implica estructura correcta.** El TSTR puede mantenerse alto mientras las importancias de variables divergen de las reales; conviene reportar la correlación de rangos entre importancias de permutación del modelo TRTR y del TSTR.
 - **No detecta varianza deflactada.** van Breugel et al. (ICML 2023) muestran que los análisis hechos sobre sintéticos subestiman la incertidumbre y producen intervalos de confianza inválidos.[^vanbreugel]
@@ -75,7 +97,7 @@ Para la tarea secundaria (volatilidad realizada) se usa MAE y $R^2$ sobre `real_
 
 ### 3.1 El espacio de trabajo
 
-Con $d \approx 1.100$ y $n \approx 5.000$ se está en régimen $n \lesssim 5d$: las covarianzas son singulares, las distancias euclídeas se concentran y cualquier métrica basada en vecinos pierde discriminación. Todas las métricas multivariantes se calculan sobre una **proyección PCA de 50 componentes ajustada exclusivamente sobre `real_train`** y aplicada después a real y sintético. Esto elimina la singularidad, reduce el coste de $O(n^2 d)$ a $O(n^2 \cdot 50)$ (factor ~22) y sigue la recomendación estándar de preprocesado para métodos basados en vecinos y para t-SNE.[^bhsne] Las componentes retenidas y la varianza explicada acumulada forman parte del informe. Las métricas univariantes (marginales, ACF) se calculan siempre en el **espacio original**, donde son interpretables.
+Con $d = 1.201$ y $n \approx 5.000$ se está en régimen $n \lesssim 5d$: las covarianzas son singulares, las distancias euclídeas se concentran y cualquier métrica basada en vecinos pierde discriminación. Todas las métricas multivariantes se calculan sobre una **proyección PCA de 50 componentes ajustada exclusivamente sobre `real_train`** y aplicada después a real y sintético. Esto elimina la singularidad, reduce el coste de $O(n^2 d)$ a $O(n^2 \cdot 50)$ (factor ~22) y sigue la recomendación estándar de preprocesado para métodos basados en vecinos y para t-SNE.[^bhsne] Las componentes retenidas y la varianza explicada acumulada forman parte del informe. Las métricas univariantes (marginales, ACF) se calculan siempre en el **espacio original**, donde son interpretables.
 
 ### 3.2 Discriminative score / Classifier Two-Sample Test
 
@@ -83,7 +105,7 @@ Lopez-Paz y Oquab (ICLR 2017) formalizan el C2ST: se etiquetan los reales como 0
 
 $$\text{AUC} \approx 0{,}5 \Rightarrow \text{indistinguibles}; \qquad \text{AUC} \to 1{,}0 \Rightarrow \text{trivialmente separables}$$
 
-Precauciones: (i) **validación cruzada obligatoria** (5 folds estratificados) — el AUC en entrenamiento es siempre ~1,0 y no significa nada; (ii) **capacidad controlada** — con 1.100 dimensiones y 5.000 muestras un modelo suficientemente flexible separa cualquier par de muestras, por lo que se usa `HistGradientBoostingClassifier` sobre PCA-50 y, como control, una regresión logística regularizada; si ambos dan 0,5 la conclusión es sólida, y si solo el boosting separa, la diferencia es no lineal y localizada; (iii) **intervalo de confianza** — un AUC de 0,55 ± 0,04 no es distinguible de 0,5; (iv) **diagnóstico** — las importancias de permutación del discriminador indican *qué* delata al sintético, y son la información más accionable de toda la batería.
+Precauciones: (i) **validación cruzada obligatoria** (5 folds estratificados) — el AUC en entrenamiento es siempre ~1,0 y no significa nada; (ii) **capacidad controlada** — con 1.201 dimensiones y 5.000 muestras un modelo suficientemente flexible separa cualquier par de muestras, por lo que se usa `HistGradientBoostingClassifier` sobre PCA-50 y, como control, una regresión logística regularizada; si ambos dan 0,5 la conclusión es sólida, y si solo el boosting separa, la diferencia es no lineal y localizada; (iii) **intervalo de confianza** — un AUC de 0,55 ± 0,04 no es distinguible de 0,5; (iv) **diagnóstico** — las importancias de permutación del discriminador indican *qué* delata al sintético, y son la información más accionable de toda la batería.
 
 Umbrales: AUC < 0,60 excelente; 0,60–0,75 aceptable; > 0,85 rechazo.
 
@@ -107,15 +129,15 @@ La $W_2$ multivariante exacta requiere transporte óptimo de coste $O(n^3\log n)
 
 ### 3.5 Marginales
 
-Por canal (mejor que por cada una de las 1.100 dimensiones aplanadas): **estadístico KS** $D=\sup_x|F_{\text{real}}(x)-F_{\text{sint}}(x)|$, que SDMetrics reporta como `KSComplement` $=1-D$ con 1,0 óptimo;[^sdmetrics] **momentos** (media, desviación, asimetría, curtosis) — en datos financieros la curtosis es el momento que más generadores fallan, y un gaussiano multivariante producirá por construcción curtosis ≈ 3 frente a valores reales de 5–20; y **colas** (cuantiles 1%, 5%, 95%, 99%), que es donde vive la clase crisis.
+Por canal (mejor que por cada una de las 1.201 dimensiones aplanadas): **estadístico KS** $D=\sup_x|F_{\text{real}}(x)-F_{\text{sint}}(x)|$, que SDMetrics reporta como `KSComplement` $=1-D$ con 1,0 óptimo;[^sdmetrics] **momentos** (media, desviación, asimetría, curtosis) — en datos financieros la curtosis es el momento que más generadores fallan, y un gaussiano multivariante producirá por construcción curtosis ≈ 3 frente a valores reales de 5–20; y **colas** (cuantiles 1%, 5%, 95%, 99%), que es donde vive la clase crisis.
 
-**Comparaciones múltiples.** Con 1.100 tests marginales al 5% se esperan ~55 rechazos por puro azar. Se aplica Benjamini–Hochberg (FDR 5%) y se reporta la **fracción de marginales rechazadas**, no la lista de p-valores. Resumen operativo: KS medio, percentil 95 y fracción de canales con $D > 0{,}1$.
+**Comparaciones múltiples.** Con 1.201 tests marginales al 5% se esperan ~60 rechazos por puro azar. Se aplica Benjamini–Hochberg (FDR 5%) y se reporta la **fracción de marginales rechazadas**, no la lista de p-valores. Resumen operativo: KS medio, percentil 95 y fracción de canales con $D > 0{,}1$.
 
 ### 3.6 Matrices de correlación
 
-**No se calcula la matriz $1.100 \times 1.100$ del vector aplanado**: con $n=5.000$ es una estimación de $\sim6\cdot10^5$ parámetros con 5.000 observaciones, es decir, ruido. La comparación se hace a dos niveles interpretables:
+**No se calcula la matriz $1.201 \times 1.201$ del vector aplanado**: con $n=5.000$ es una estimación de $\sim7{,}2\cdot10^5$ entradas independientes con 5.000 observaciones, es decir, ruido, y su norma mediría el error de estimación más que el del generador. La comparación se hace a dos niveles interpretables:
 
-1. **Correlación contemporánea entre canales** ($18\times18$), apilando todos los pasos temporales de todas las ventanas. Métrica: error de Frobenius relativo $\lVert C_r - C_s\rVert_F / \lVert C_r\rVert_F$ y máximo error absoluto elemento a elemento.
+1. **Correlación contemporánea entre canales** ($20\times20$), apilando todos los pasos temporales de todas las ventanas. Es lo que implementa `evaluacion.error_correlaciones`, que además descarta la última columna del bloque —la volatilidad futura, que no forma parte de la ventana— antes de deshacer el aplanado. Métrica: error de Frobenius relativo $\lVert C_r - C_s\rVert_F / \lVert C_r\rVert_F$ y máximo error absoluto elemento a elemento.
 2. **Correlación cruzada con retardo** entre pares de canales para $\ell = 1,\dots,10$, que captura estructura *lead-lag* que la matriz contemporánea ignora.
 
 Se reportan Pearson y Spearman: la primera captura la estructura lineal, la segunda es robusta a colas pesadas y detecta si el generador ha "gaussianizado" las dependencias. SDMetrics lo implementa como `CorrelationSimilarity`.[^sdmetrics]
@@ -142,7 +164,7 @@ $$\text{density} := \frac{1}{kM}\sum_{j=1}^{M}\sum_{i=1}^{N} \mathbb{1}\left[Y_j
 
 **Adaptación al taller.** Estas métricas se definieron sobre embeddings de Inception. Aquí no hay red preentrenada relevante: el espacio es la **proyección PCA-50 sobre datos estandarizados**, y esa elección debe declararse porque los valores absolutos no son comparables con los de la literatura de imagen. Lo comparable es el **ranking entre los siete generadores evaluados en el mismo espacio**.
 
-**Diversidad por clase.** Con crisis al 10%, la `coverage` global puede ser 0,95 mientras la restringida a reales de clase crisis es 0,4. Se calcula `coverage` **estratificada por clase** y se reporta la de crisis por separado: es el diagnóstico de mode collapse más informativo del taller.
+**Diversidad por clase.** Con la crisis en torno al 16 % en train, la `coverage` global puede ser 0,95 mientras la restringida a reales de clase crisis es 0,4. Se calcula `coverage` **estratificada por clase** y se reporta la de crisis por separado: es el diagnóstico de mode collapse más informativo del taller.
 
 ### 4.3 Test de memorización por vecino más cercano
 
@@ -191,13 +213,13 @@ Métrica escalar: MAE entre la ACF real y la sintética sobre los 20 retardos, p
 
 **t-SNE (opcional, con restricciones estrictas).** TimeGAN la usa para inspección visual. Su coste es $O(n^2)$ en la versión original y $O(n\log n)$ con la aproximación Barnes-Hut, que en la práctica funciona bien hasta ~100.000 puntos pero se degrada antes; la recomendación original de los autores es preprocesar con PCA a ~50 dimensiones.[^bhsne] Regla operativa:
 
-> **t-SNE solo sobre un submuestreo de ≤ 2.000 reales + 2.000 sintéticos, siempre después de PCA-50, con `perplexity=30` y semilla fija.** Aplicarla sobre 50.000 puntos de 1.100 dimensiones en CPU es inviable (horas por generador × 7 generadores) e innecesario: el gráfico resultante no es cuantitativo.
+> **t-SNE solo sobre un submuestreo de ≤ 2.000 reales + 2.000 sintéticos, siempre después de PCA-50, con `perplexity=30` y semilla fija.** Aplicarla sobre 50.000 puntos de 1.201 dimensiones en CPU es inviable (horas por generador × 7 generadores) e innecesario: el gráfico resultante no es cuantitativo.
 
 t-SNE es una herramienta de inspección, no una métrica. No se reporta ningún número derivado de ella y las distancias en el plano t-SNE no tienen interpretación métrica.
 
 ## 6. Métricas que no aplican a este problema
 
-**Fréchet Inception Distance.** FID (Heusel et al., 2017) calcula la distancia de Fréchet entre dos gaussianas ajustadas a las activaciones de la capa `pool3` de Inception-v3.[^fid] No es trasladable por cuatro razones independientes: (i) **la red no existe para este dominio** — Inception-v3 se entrena sobre ImageNet, imágenes RGB de 299×299 de escenas naturales, y sus activaciones sobre un panel financiero de 60×18 son la respuesta de detectores de texturas y objetos a una entrada fuera de distribución, sin significado; (ii) **no hay embedding sustituto validado** — reemplazar Inception por un autoencoder propio da un número calculable pero incomparable entre trabajos y dependiente del entrenamiento del encoder; (iii) **supuesto de gaussianidad** en el espacio de características, que en datos financieros de colas pesadas es precisamente lo que se quiere testar, no lo que se puede asumir; (iv) **requisito de muestra** — una estimación estable necesita del orden de 10.000 muestras por lado y el estimador está sesgado con muestras pequeñas, mientras aquí hay ~5.000 reales en total.
+**Fréchet Inception Distance.** FID (Heusel et al., 2017) calcula la distancia de Fréchet entre dos gaussianas ajustadas a las activaciones de la capa `pool3` de Inception-v3.[^fid] No es trasladable por cuatro razones independientes: (i) **la red no existe para este dominio** — Inception-v3 se entrena sobre ImageNet, imágenes RGB de 299×299 de escenas naturales, y sus activaciones sobre un panel financiero de 60×20 son la respuesta de detectores de texturas y objetos a una entrada fuera de distribución, sin significado; (ii) **no hay embedding sustituto validado** — reemplazar Inception por un autoencoder propio da un número calculable pero incomparable entre trabajos y dependiente del entrenamiento del encoder; (iii) **supuesto de gaussianidad** en el espacio de características, que en datos financieros de colas pesadas es precisamente lo que se quiere testar, no lo que se puede asumir; (iv) **requisito de muestra** — una estimación estable necesita del orden de 10.000 muestras por lado y el estimador está sesgado con muestras pequeñas, mientras aquí hay ~5.000 reales en total.
 
 > Nota práctica: synthcity expone una métrica `fid` documentada como aplicable únicamente a datos de imagen.[^synthcity] No usarla sobre este dataset.
 
@@ -205,47 +227,49 @@ Lo legítimo es transportar la *idea*, no la métrica: una distancia de Fréchet
 
 **Inception Score.** IS (Salimans et al., 2016) mide $\exp(\mathbb{E}_x \text{KL}(p(y|x)\Vert p(y)))$ sobre las posteriores de las 1.000 clases de ImageNet.[^is] Tiene un defecto adicional decisivo: **no usa los datos reales en ningún punto del cálculo**, de modo que un generador puede obtener un IS alto produciendo muestras nítidas de una distribución completamente distinta de la real. Aquí ni siquiera está definido: no hay taxonomía de clases naturales sobre la que evaluar posteriores.
 
-**Otras.** SSIM, PSNR y LPIPS son métricas de similitud perceptual pareada entre imágenes: requieren correspondencia uno a uno entre muestras (inexistente entre real y sintético) y un modelo de percepción visual humana (irrelevante para series de precios). $k$-anonimato, $l$-diversidad y $\delta$-presencia, disponibles en synthcity, están definidas sobre tablas con cuasi-identificadores categóricos; sobre un panel continuo de 1.100 dimensiones cada registro es único y todas devuelven el valor degenerado.
+**Otras.** SSIM, PSNR y LPIPS son métricas de similitud perceptual pareada entre imágenes: requieren correspondencia uno a uno entre muestras (inexistente entre real y sintético) y un modelo de percepción visual humana (irrelevante para series de precios). $k$-anonimato, $l$-diversidad y $\delta$-presencia, disponibles en synthcity, están definidas sobre tablas con cuasi-identificadores categóricos; sobre un panel continuo de 1.201 dimensiones cada registro es único y todas devuelven el valor degenerado.
 
 ## 7. Batería de métricas elegida para este taller
 
-P0 = obligatoria en el informe final; P1 = recomendada; P2 = opcional si sobra presupuesto. Los costes son órdenes de magnitud por generador para $n=5.000$ y $d\approx1.100$, medidos sobre una CPU de 4 núcleos con el modelo downstream logístico de la sección 2.3; las métricas multivariantes se calculan en PCA-50. Advertencia de calibración: los métodos basados en árboles de `scikit-learn` tienen una sobrecarga fija de decenas de segundos por ajuste en esta clase de máquina, así que sustituirlos por el boosting multiplica por 20–50 los costes de las filas 1, 2 y 3.
+P0 = obligatoria en el informe final; P1 = recomendada; P2 = opcional si sobra presupuesto. Los costes son órdenes de magnitud por generador para $n=5.000$ y $d=1.201$, medidos sobre una CPU de 4 núcleos; las métricas multivariantes se calculan en PCA-50, con el proyector que ajusta `evaluacion.proyector` una sola vez sobre los reales, de modo que todos los generadores se juzguen en el mismo espacio.
 
-| # | Prio | Nombre en `src/evaluacion.py` | Qué mide | Valor "bueno" | Coste |
+La columna **Implementación** dice qué existe hoy en `src/evaluacion.py` y qué no. Las filas marcadas como **pendiente** no tienen función en el módulo: se enuncian aquí como especificación de lo que habría que escribir, y ninguna cifra del informe puede citarlas hasta que exista el código. `evaluacion.bateria_calidad` encadena todas las implementadas y devuelve una fila de resultados por generador.
+
+| # | Prio | Qué mide | Implementación | Valor "bueno" | Coste |
 |---|---|---|---|---|---|
-| 1 | P0 | `tstr_f1_macro` · `tstr_balanced_accuracy` · `tstr_recall_crisis` | Utilidad downstream, como ratio frente al baseline TRTR | ratio ≥ 0,90 excelente, ≥ 0,80 aceptable; recall de crisis ≥ 0,8 × TRTR | 10–40 s (4 ajustes logísticos) |
-| 2 | P0 | `curva_mezcla` | F1-macro downstream vs. fracción sintética $f\in\{0;0{,}25;0{,}5;0{,}75;1\}$, 3 semillas | Máximo en $f>0$ → el sintético aporta; caída monótona → no aporta | 1–3 min (15 ajustes) |
-| 3 | P0 | `discriminative_auc` | C2ST: separabilidad real vs. sintético, AUC con 5-fold CV | < 0,60 excelente; 0,60–0,75 aceptable; > 0,85 rechazo | 3–10 min (boosting sobre PCA-50, 5 folds) |
-| 4 | P0 | `memorizacion_dcr` | Ratio DCR sintético/holdout frente a `real_train` + duplicados exactos | ratio mediana ∈ [0,9 ; 1,2]; `frac_mas_cerca` ≈ 0,5; duplicados = 0 | 5–20 s |
-| 5 | P0 | `coverage_prdc` (Naeem, $k=5$), global y **estratificada por clase** | Cobertura del soporte real; mode collapse | ≥ 0,80 global y ≥ 0,70 en clase crisis | 30–120 s |
-| 6 | P0 | `resumen_marginales` | KS medio y p95 por canal, fracción con $D>0{,}1$, curtosis por canal | KS medio < 0,05; fracción < 0,10; curtosis dentro de ±30% de la real | 5–15 s |
-| 7 | P0 | `error_correlacion` | Frobenius relativo de la matriz 18×18 entre canales (Pearson y Spearman) | < 0,10 excelente; < 0,20 aceptable | < 1 s |
-| 8 | P1 | `error_acf` sobre $r_t$ y $\lvert r_t\rvert$, retardos 1–20 | Estructura temporal y agrupamiento de volatilidad | MAE < 0,05 en ambas; la de $\lvert r_t\rvert$ es la discriminante | 2–10 s |
-| 9 | P1 | `density_prdc` (Naeem, $k=5$) | Fidelidad robusta a outliers | ∈ [0,8 ; 1,2] | incluido en (5) |
-| 10 | P1 | `mmd2_rbf` + test de permutación (200 perm., heurística de la mediana) | Discrepancia distribucional global con p-valor | $p>0{,}05$, o MMD² a menos de 2 desviaciones de la nula | 1–4 min (2.000/lado) |
-| 11 | P1 | `predictive_score` (ridge AR a 1 paso, variante TSTR) | Aprendibilidad de la dinámica temporal | ratio MAE ≤ 1,15 | 5–20 s |
-| 12 | P1 | `pca_overlay` + varianza explicada + ángulos principales | Inspección visual y colapso de rango | Solapamiento visual; coseno medio de los 10 primeros > 0,95 | < 5 s |
-| 13 | P2 | `precision_recall_prdc` (Kynkäänniemi, $k=3$) | Fidelidad/diversidad clásicas, comparables con la literatura | ambas ≥ 0,7 | incluido en (5) |
-| 14 | P2 | `sliced_wasserstein` (200 proyecciones) | Distancia distribucional alternativa | Menor es mejor, solo comparación relativa | 10–30 s |
-| 15 | P2 | `tsne_overlay` (≤ 2.000 + 2.000 puntos, tras PCA-50) | Inspección cualitativa | Nubes superpuestas, sin islas puramente sintéticas | 1–3 min |
-| 16 | P2 | synthcity: `alpha_precision`, `beta_recall`, `authenticity` | Auditoría a nivel de muestra, generalización | `authenticity` ≥ 0,7 | 2–10 min |
+| 1 | P0 | Utilidad downstream, como ratio frente al baseline TRTR | `evaluacion.evaluar` sobre el modelo congelado, más `metricas_regimen` / `metricas_volatilidad`; el ratio se calcula en el cuaderno | ratio ≥ 0,90 excelente, ≥ 0,80 aceptable; recall de crisis ≥ 0,8 × TRTR | 4 entrenamientos de la arquitectura congelada |
+| 2 | P0 | Rendimiento downstream frente al ratio sintético/real, por nivel de reales y política | no es una función: es el barrido del cuaderno 12, `mezclas.rejilla` + `mezclas.montar` + `downstream.entrenar` + `evaluacion.evaluar`, persistido con `evaluacion.acumular` | Máximo en $\rho>0$ · el sintético aporta; caída monótona · no aporta | 285 recetas por tarea, 570 entrenamientos en total |
+| 3 | P0 | C2ST: separabilidad real vs. sintético | **`puntuacion_discriminativa`** — `HistGradientBoostingClassifier` sobre PCA-50, partición 70/30 estratificada. Devuelve `auc_discriminativo` y `distancia_a_indistinguible` | < 0,60 excelente; 0,60–0,75 aceptable; > 0,85 rechazo | 30 s – 3 min |
+| 4 | P0 | Memorización: distancia al vecino real más cercano | **`distancia_vecino_mas_cercano`** — devuelve `cociente_dvmc`, `frac_mas_cerca` y `duplicados_exactos`. **Ojo**: la escala de referencia son las distancias **real-real** (segundo vecino), no un holdout | cociente ≈ 1,0, aceptable ≥ 0,9; `frac_mas_cerca` ≈ 0,5; duplicados = 0 | 5–20 s |
+| 5 | P0 | Cobertura del soporte real; mode collapse | **pendiente** — `coverage` de Naeem ($k=5$), global y estratificada por clase, no está implementada | ≥ 0,80 global y ≥ 0,70 en clase crisis | 30–120 s |
+| 6 | P0 | Marginales: momentos y colas | **`comparar_momentos`** da media, desviación, asimetría y curtosis, y `bateria_calidad` publica `dif_curtosis` y `dif_asimetria`. El resumen KS por canal (medio, p95, fracción con $D>0{,}1$) está **pendiente** | curtosis dentro de ±30 % de la real; KS medio < 0,05 cuando exista | 5–15 s |
+| 7 | P0 | Frobenius relativo de la matriz 20×20 entre canales | **`error_correlaciones`** — solo Pearson; la variante Spearman y el máximo absoluto elemento a elemento están **pendientes** | < 0,10 excelente; < 0,20 aceptable | < 1 s |
+| 8 | P1 | Estructura temporal y agrupamiento de volatilidad, retardos 1–20 | **`error_autocorrelacion`** — devuelve `error_acf_retornos` y `error_acf_absolutos`, sobre el canal 0 (retorno del índice) | MAE < 0,05 en ambas; la de $\lvert r_t\rvert$ es la discriminante | 2–10 s |
+| 9 | P1 | Fidelidad robusta a outliers (`density`, Naeem $k=5$) | **pendiente** | ∈ [0,8 ; 1,2] | incluido en (5) |
+| 10 | P1 | Discrepancia distribucional global con p-valor (MMD² RBF + permutaciones) | **pendiente** | $p>0{,}05$, o MMD² a menos de 2 desviaciones de la nula | 1–4 min (2.000/lado) |
+| 11 | P1 | Aprendibilidad de la dinámica temporal (predictive score, ridge AR a 1 paso) | **pendiente** | ratio MAE ≤ 1,15 | 5–20 s |
+| 12 | P1 | Inspección visual y colapso de rango (PCA overlay, varianza explicada, ángulos principales) | **pendiente** como figura; el proyector ya lo da `evaluacion.proyector` | Solapamiento visual; coseno medio de los 10 primeros > 0,95 | < 5 s |
+| 13 | P2 | Precision/recall de Kynkäänniemi ($k=3$) | **pendiente** | ambas ≥ 0,7 | incluido en (5) |
+| 14 | P2 | Sliced Wasserstein (200 proyecciones) | **pendiente** | Menor es mejor, solo comparación relativa | 10–30 s |
+| 15 | P2 | Inspección cualitativa t-SNE (≤ 2.000 + 2.000 puntos, tras PCA-50) | **pendiente** | Nubes superpuestas, sin islas puramente sintéticas | 1–3 min |
+| 16 | P2 | Auditoría a nivel de muestra (synthcity: `alpha_precision`, `beta_recall`, `authenticity`) | **pendiente**, dependencia externa | `authenticity` ≥ 0,7 | 2–10 min |
 
-**Criterio de aceptación de un generador** (los cuatro simultáneamente): `memorizacion_dcr` con ratio de mediana ≥ 0,9 y cero duplicados exactos — **si falla esto, el resto de métricas no se interpreta**; `discriminative_auc` < 0,85; `coverage_prdc` en clase crisis ≥ 0,70; y `tstr_f1_macro` con ratio ≥ 0,70.
+**Criterio de aceptación de un generador**, con lo que hoy se puede medir: `distancia_vecino_mas_cercano` con `cociente_dvmc` ≥ 0,9 y cero duplicados exactos — **si falla esto, el resto de métricas no se interpreta**; `auc_discriminativo` < 0,85; y ratio de utilidad downstream ≥ 0,70 en F1 macro. El cuarto criterio histórico —`coverage` en clase crisis ≥ 0,70— **no es exigible mientras la métrica siga pendiente**, y no se puede dar por cumplido: hasta que se implemente, el diagnóstico de mode collapse en la clase de crisis descansa en `dif_curtosis` y en la inspección del banco por régimen, que son más débiles.
 
-El ranking final se ordena por `curva_mezcla`: mejor F1-macro alcanzado en cualquier $f>0$, con su desviación entre semillas.
+El ranking final se ordena por el resultado del barrido del cuaderno 12: mejor F1 macro alcanzado en cualquier $\rho>0$, con su desviación entre semillas, y leído siempre contra la línea base de persistencia causal (D21) y no contra el cero absoluto.
 
-**Presupuesto estimado**: P0 completo ≈ 6–15 min por generador (45–105 min para los siete); P0+P1 ≈ 10–20 min por generador. La partida dominante es el C2ST, único punto donde se usa boosting; si el presupuesto aprieta, reducir `max_iter` a 50 con `early_stopping=True` o pasar a 3 folds antes que recortar cualquier otra métrica. Se cachean la PCA y las matrices de distancia, compartidas entre las métricas 4, 5, 9, 13 y 14.
+**Presupuesto estimado** de la parte de calidad sintética: las cuatro métricas implementadas cuestan del orden de un minuto por generador, dominadas por el C2ST, único punto donde se usa boosting; si el presupuesto aprieta, reducir `max_iter` a 50 con `early_stopping=True` antes que recortar cualquier otra. El proyector PCA se ajusta una sola vez y se reutiliza en las filas 3 y 4. La partida realmente cara del taller no es esta batería sino el barrido de la fila 2.
 
 ## 8. Implementación de referencia
 
-Código ejecutable con `numpy`, `scipy` y `scikit-learn`. Alimenta `src/evaluacion.py` y el notebook `14_calidad_sinteticos.ipynb`.
+> **No vinculante.** Lo que se ejecuta es `src/evaluacion.py`, y la tabla de la sección 7 dice qué hay allí y qué no. El código que sigue es una implementación de referencia, escrita antes que el módulo, que conserva su valor como especificación de las métricas **pendientes** —MMD, PRDC, marginales KS, predictive score— y como documentación de los supuestos de cada fórmula. Donde discrepe del módulo, manda el módulo. En particular: el test de memorización de aquí usa un **holdout real** como escala de referencia y el implementado usa las distancias **real-real**; y el modelo downstream de aquí es una logística de scikit-learn, mientras que el del taller es la candidata `lineal` congelada de la sección 2.3, que es la misma multinomial sobre la ventana aplanada pero entrenada en Keras, con dropout y con el presupuesto de D20.
 
 ```python
 """Batería de métricas de calidad para datos sintéticos (taller B5-T1).
 
 Convenciones:
-  X_* : matrices aplanadas (n, d) con d ~ 1100
-  P_* : paneles sin aplanar (n, T, C) con T=60, C~18
+  X_* : matrices aplanadas (n, d) con d = 1201
+  P_* : paneles sin aplanar (n, T, C) con T=60, C=20
   Z_* : representaciones proyectadas a PCA-50 (n, 50)
 """
 import numpy as np
@@ -333,7 +357,7 @@ def _curtosis(X):
     return (z ** 4).mean(axis=0)
 
 def resumen_marginales(X_real, X_sint, umbral_ks=0.10):
-    """KS y W1 normalizada por columna. Se resume: no se listan 1100 p-valores."""
+    """KS y W1 normalizada por columna. Se resume: no se listan 1201 p-valores."""
     d = X_real.shape[1]
     ks, w1 = np.empty(d), np.empty(d)
     for j in range(d):
@@ -350,8 +374,8 @@ def resumen_marginales(X_real, X_sint, umbral_ks=0.10):
 def error_correlacion(P_real, P_sint, metodo="pearson"):
     """Compara la matriz C x C de correlaciones entre canales.
 
-    NO se compara la matriz 1100 x 1100 del vector aplanado: con n~5000 sería
-    una estimación de ~6e5 parámetros con 5e3 observaciones, es decir, ruido.
+    NO se compara la matriz 1201 x 1201 del vector aplanado: con n~5000 sería
+    una estimación de ~7,2e5 entradas con 5e3 observaciones, es decir, ruido.
     """
     def matriz(P):
         Z = P.reshape(-1, P.shape[2])
@@ -369,7 +393,7 @@ def prdc(Z_real, Z_sint, k=5):
     """Precision/recall (Kynkäänniemi 2019) y density/coverage (Naeem 2020).
 
     k=5 sigue a Naeem et al.; para replicar Kynkäänniemi usar k=3.
-    Coste O(n^2 * dim): usar SIEMPRE el espacio PCA-50, no las 1100 dims.
+    Coste O(n^2 * dim): usar SIEMPRE el espacio PCA-50, no las 1201 dims.
     """
     d_rr = cdist(Z_real, Z_real); np.fill_diagonal(d_rr, np.inf)
     radio_r = np.sort(d_rr, axis=1)[:, k - 1]          # NND_k de cada real
@@ -385,7 +409,7 @@ def prdc(Z_real, Z_sint, k=5):
             "coverage": float(en_bola_real.any(axis=1).mean())}
 
 def coverage_por_clase(Z_real, y_real, Z_sint, y_sint, k=5):
-    """Coverage estratificada: con crisis al 10%, la global la enmascara."""
+    """Coverage estratificada: con la crisis al 10-16%, la global la enmascara."""
     salida = {}
     for c in np.unique(y_real):
         zr, zs = Z_real[y_real == c], Z_sint[y_sint == c]
@@ -451,12 +475,15 @@ def predictive_score(P_entrena, P_evalua, canal_objetivo=-1):
 
 # --- 6. Utilidad: TSTR / TRTS / TRTR y curva de mezcla ---------------------
 def modelo_downstream(tipo="logistica", semilla=0):
-    """Modelo downstream FIJO para los siete generadores.
+    """Sustituto ligero del downstream, SOLO para prototipar esta bateria.
 
-    Por defecto, logística multinomial regularizada: sobre ~1100 variables y
-    ~4000 muestras se ajusta en segundos, mientras que un HistGradientBoosting
-    tarda minutos por ajuste en CPU y la curva de mezcla necesita 15 ajustes
-    por generador. El boosting queda como control de robustez puntual.
+    El modelo downstream del taller NO es exactamente este: es la candidata
+    `lineal` congelada en models/downstream/arquitectura.json (D20), construida por
+    downstream.construir y entrenada por downstream.entrenar. Esa candidata gano la
+    busqueda entre las seis y tampoco tiene convoluciones: es una multinomial sobre
+    la ventana aplanada, asi que la logistica de aqui es su equivalente barato en
+    scikit-learn, sin dropout ni el presupuesto de D20, y sirve para iterar sobre el
+    codigo de las metricas sin pagar un entrenamiento completo por prueba.
     """
     if tipo == "boosting":
         return HistGradientBoostingClassifier(
@@ -469,11 +496,12 @@ def modelo_downstream(tipo="logistica", semilla=0):
 def entrena_evalua(X_tr, y_tr, X_te, y_te, clase_minoritaria=2, semilla=0,
                    tipo="logistica"):
     """Métricas para clasificación desbalanceada. El accuracy es contexto, no
-    criterio: con crisis al 10% un modelo que nunca la prediga puede superar
-    0.85 de accuracy con recall de crisis igual a cero.
+    criterio: con la crisis al 10,5% en test, un modelo que nunca la prediga
+    puede superar 0.85 de accuracy con recall de crisis igual a cero.
 
-    Sin `class_weight="balanced"` a propósito: reponderar enmascararía el
-    efecto del sintético sobre la clase minoritaria, que es lo que se mide.
+    Sin `class_weight="balanced"` a propósito en la rama principal: reponderar
+    enmascararía el efecto del sintético sobre la clase minoritaria, que es lo
+    que se mide. La rama reponderada existe aparte y es obligatoria (D15).
     """
     y_pred = modelo_downstream(tipo, semilla).fit(X_tr, y_tr).predict(X_te)
     return {"f1_macro": float(f1_score(y_te, y_pred, average="macro")),
@@ -493,22 +521,29 @@ def tstr_trts(X_real_tr, y_real_tr, X_real_te, y_real_te, X_sint, y_sint, **kw):
             "ratio_TSTR_TRTR": {k: tstr[k] / (trtr[k] + 1e-12) for k in trtr}}
 
 def curva_mezcla(X_real_tr, y_real_tr, X_sint, y_sint, X_real_te, y_real_te,
-                 fracciones=(0.0, 0.25, 0.5, 0.75, 1.0), semillas=(0, 1, 2), **kw):
-    """F1-macro downstream frente a la fracción sintética del entrenamiento.
+                 ratios=(0.0, 0.5, 1.0, 2.0, 5.0), semillas=(0, 1, 2), **kw):
+    """F1-macro downstream frente al ratio sintético/real. Eje central del taller.
 
-    El tamaño total del train se mantiene constante para aislar el efecto de
-    la mezcla del efecto del tamaño muestral. Es el eje central del taller.
+    AUMENTACIÓN, no sustitución: el sintético se AÑADE al real y el tamaño total
+    crece con el ratio. El efecto del tamaño muestral se aísla con el segundo eje
+    del barrido —el número de reales disponibles—, no manteniendo el total fijo.
+
+    Versión reducida: la vigente es src/mezclas.py, que además cruza con los
+    niveles de reales (250, 500, 1000, 2000, todos) y reparte los sintéticos por
+    clase según la política (`proporcional` o `equilibrado`).
     """
-    n_total, filas = len(X_real_tr), []
-    for f in fracciones:
+    n_real, filas = len(X_real_tr), []
+    for r in ratios:
         for s in semillas:
             rng = np.random.default_rng(s)
-            n_s = int(round(f * n_total))
-            idx_r = rng.choice(len(X_real_tr), n_total - n_s, replace=False)
-            idx_s = rng.choice(len(X_sint), n_s, replace=n_s > len(X_sint))
-            X = np.vstack([X_real_tr[idx_r], X_sint[idx_s]])
-            y = np.concatenate([y_real_tr[idx_r], y_sint[idx_s]])
-            filas.append({"frac_sintetico": f, "semilla": s,
+            n_s = int(round(r * n_real))
+            if n_s == 0:
+                X, y = X_real_tr, y_real_tr
+            else:
+                idx_s = rng.choice(len(X_sint), n_s, replace=n_s > len(X_sint))
+                X = np.vstack([X_real_tr, X_sint[idx_s]])
+                y = np.concatenate([y_real_tr, y_sint[idx_s]])
+            filas.append({"ratio_sintetico": r, "semilla": s,
                           **entrena_evalua(X, y, X_real_te, y_real_te,
                                            semilla=s, **kw)})
     return filas
@@ -547,7 +582,7 @@ def evaluar_generador(nombre, P_real_tr, y_real_tr, P_real_te, y_real_te,
 
 | Framework | Instalable | Útil aquí | Comentario |
 |---|---|---|---|
-| **SDMetrics** (SDV) | `pip install sdmetrics`, puro Python | Parcial | Diseñado para tablas mixtas fila a fila. Aporta `KSComplement`, `TVComplement`, `CorrelationSimilarity`, `RangeCoverage` y los informes de calidad. Sobre un panel aplanado de 1.100 columnas los informes son lentos y poco legibles: usarlo solo sobre las 18 series agregadas.[^sdmetrics] |
+| **SDMetrics** (SDV) | `pip install sdmetrics`, puro Python | Parcial | Diseñado para tablas mixtas fila a fila. Aporta `KSComplement`, `TVComplement`, `CorrelationSimilarity`, `RangeCoverage` y los informes de calidad. Sobre un panel aplanado de 1.201 columnas los informes son lentos y poco legibles: usarlo solo sobre los 20 canales agregados.[^sdmetrics] |
 | **synthcity** | `pip install synthcity`; Python 3.7–3.10 | Sí, con cuidado | Aporta `prdc`, `alpha_precision` (α-precision, β-recall, authenticity), `max_mean_discrepancy`, `wasserstein_dist`, `detection_xgb` y métricas de rendimiento downstream. Su `fid` es solo para imagen. Las métricas de privacidad formal (`k_anonymization`, `l_diversity`) son degeneradas sobre datos continuos de alta dimensión.[^synthcity] |
 | **generative-evaluation-prdc** | `pip install prdc` (repo Clova AI) | Sí | Implementación canónica de precision/recall/density/coverage en una función, `compute_prdc(real_features, fake_features, nearest_k)`. Ligera y sin dependencias pesadas.[^prdc] |
 | **POT** (Python Optimal Transport) | `pip install pot` | Opcional | Solo necesario para Sliced Wasserstein multivariante; para $W_1$ marginal basta `scipy`. |
