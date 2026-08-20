@@ -185,7 +185,9 @@ def auditar_panel(
                   else f"{no_positivos} cierres <= 0"))
 
     constantes = [c for c in numerico.columns if numerico[c].nunique(dropna=False) <= 1]
-    correlacion = numerico.pct_change().corr().abs().to_numpy()
+    # Pandas 3 activa Copy-on-Write y puede devolver una vista de solo lectura.
+    # La diagonal se modifica justo debajo, así que necesitamos una copia propia.
+    correlacion = numerico.pct_change().corr().abs().to_numpy(copy=True)
     np.fill_diagonal(correlacion, 0.0)
     maxima = float(np.nanmax(correlacion)) if correlacion.size else 0.0
     gemelas = int((correlacion > 0.9999).sum() // 2)

@@ -1,0 +1,14 @@
+{
+  "nombre": "jitter",
+  "etiqueta": "Datos reales + ruido",
+  "clase": "Jitter",
+  "dimension": 1201,
+  "n_regimenes": 3,
+  "semilla": 42,
+  "tiene_curva_perdida": false,
+  "final_epoca": 2.0,
+  "final_regimen": 2.0,
+  "final_n_muestras": 587.0,
+  "final_sigma": 0.1,
+  "final_desviacion_relativa": 3.465544690232692
+}
