@@ -1,0 +1,16 @@
+{
+  "nombre": "gaussiano",
+  "etiqueta": "Gaussiano multivariante",
+  "clase": "GaussianoCondicional",
+  "dimension": 1201,
+  "n_regimenes": 3,
+  "semilla": 42,
+  "tiene_curva_perdida": false,
+  "final_epoca": 2.0,
+  "final_regimen": 2.0,
+  "final_n_muestras": 587.0,
+  "final_dimension": 1201.0,
+  "final_numero_condicion": 1427.449510873111,
+  "final_autovalor_minimo": 0.2692419078030692,
+  "final_saltos_cholesky": 0.0
+}
