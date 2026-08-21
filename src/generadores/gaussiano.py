@@ -22,10 +22,17 @@ de Ledoit-Wolf**, que la contrae hacia una diagonal escalada con un peso
 óptimo estimado de los propios datos y garantiza un resultado bien
 condicionado.
 
-Este generador no puede reproducir colas gruesas ni asimetría: por
-construcción, todo lo que genera es gaussiano. Esa limitación es informativa,
-porque cuantifica cuánto de la mejora del downstream se explica solo por
-reproducir medias y correlaciones.
+Las coordenadas de ``X`` no pueden reproducir colas gruesas ni asimetría: en el
+espacio interno siguen siendo gaussianas. Esa limitación es informativa, porque
+cuantifica cuánto de la mejora del downstream se explica solo por reproducir
+medias y correlaciones.
+
+La última componente, ``y_vol``, es estrictamente positiva y llega en unidades
+naturales, a diferencia de las 1.200 componentes escaladas de ``X``. El ajuste
+normaliza internamente solo ``log(y_vol)`` dentro de cada régimen. Al generar se
+invierte esa transformación: el bloque público sigue conteniendo la volatilidad
+en sus unidades originales y nunca es negativa. Las demás componentes conservan
+exactamente el preprocesado original.
 """
 
 from __future__ import annotations
@@ -51,6 +58,10 @@ class GaussianoCondicional(GeneradorSintetico):
     regularizacion
         Valor que se suma a la diagonal en el estimador muestral, como fracción
         de la varianza media. Sin él, la factorización de Cholesky falla.
+    transformar_vol
+        Si es ``True`` (por defecto), modela la última columna como
+        ``log(y_vol)`` y aplica la exponencial al generar. ``False`` desactiva
+        únicamente esa transformación para comparaciones de diagnóstico.
     """
 
     nombre = "gaussiano"
@@ -63,14 +74,18 @@ class GaussianoCondicional(GeneradorSintetico):
         semilla: int = 42,
         estimador: str = "ledoit_wolf",
         regularizacion: float = 1e-4,
+        transformar_vol: bool = True,
     ) -> None:
         super().__init__(n_regimenes=n_regimenes, semilla=semilla)
         if estimador not in {"ledoit_wolf", "muestral"}:
             raise ValueError(f"Estimador desconocido: {estimador!r}")
         self.estimador = estimador
         self.regularizacion = regularizacion
+        self.transformar_vol = transformar_vol
 
         self.medias: dict[int, np.ndarray] = {}
+        self.medias_log_vol: dict[int, float] = {}
+        self.desviaciones_log_vol: dict[int, float] = {}
         #: Factor de Cholesky de la covarianza. Se guarda factorizado porque
         #: muestrear es entonces una multiplicación matricial, mucho más rápido
         #: que llamar a `multivariate_normal` (que refactoriza en cada llamada).
@@ -83,7 +98,7 @@ class GaussianoCondicional(GeneradorSintetico):
         d = bloque.shape[1]
 
         for k in range(self.n_regimenes):
-            muestras = bloque[y_reg == k].astype(np.float64)
+            muestras = bloque[y_reg == k].astype(np.float64).copy()
             n = len(muestras)
 
             if n < 2:
@@ -97,6 +112,25 @@ class GaussianoCondicional(GeneradorSintetico):
                     "covarianza muestral es singular; el shrinkage es "
                     "obligatorio aquí."
                 )
+
+            # Se transforma únicamente y_vol, la última columna del contrato de
+            # ventanas.empaquetar(). X conserva exactamente sus coordenadas de
+            # entrada. Normalizar log(y_vol) evita tanto el soporte negativo como
+            # la diferencia de escala que inflaba su varianza con Ledoit-Wolf.
+            if self.transformar_vol:
+                if np.any(muestras[:, -1] <= 0):
+                    raise ValueError(
+                        "y_vol debe ser estrictamente positiva para aplicar "
+                        "log(y_vol). Revisa features.objetivos()."
+                    )
+                log_vol = np.log(muestras[:, -1])
+                media_log_vol = float(log_vol.mean())
+                desviacion_log_vol = float(log_vol.std())
+                if desviacion_log_vol < np.finfo(np.float64).eps:
+                    desviacion_log_vol = 1.0
+                muestras[:, -1] = (log_vol - media_log_vol) / desviacion_log_vol
+                self.medias_log_vol[k] = media_log_vol
+                self.desviaciones_log_vol[k] = desviacion_log_vol
 
             media = muestras.mean(axis=0)
             covarianza = self._estimar_covarianza(muestras)
@@ -162,9 +196,17 @@ class GaussianoCondicional(GeneradorSintetico):
         if regimen not in self.factores:
             raise RuntimeError(f"El régimen {regimen} no se ajustó en fit().")
 
-        # x = mu + L z, con z normal estándar y L el factor de Cholesky.
+        # x = mu + L z en las coordenadas originales de X. Solo la última
+        # columna vive temporalmente como log-volatilidad normalizada.
         z = self.rng.standard_normal(size=(n, len(self.medias[regimen])))
-        return self.medias[regimen] + z @ self.factores[regimen].T
+        muestras = self.medias[regimen] + z @ self.factores[regimen].T
+        if self.transformar_vol:
+            log_vol = (
+                muestras[:, -1] * self.desviaciones_log_vol[regimen]
+                + self.medias_log_vol[regimen]
+            )
+            muestras[:, -1] = np.exp(log_vol)
+        return muestras
 
     # ── Persistencia ────────────────────────────────────────────────────────
 
@@ -172,12 +214,20 @@ class GaussianoCondicional(GeneradorSintetico):
         return {
             "estimador": self.estimador,
             "regularizacion": self.regularizacion,
+            "transformar_vol": self.transformar_vol,
             "medias": self.medias,
+            "medias_log_vol": self.medias_log_vol,
+            "desviaciones_log_vol": self.desviaciones_log_vol,
             "factores": self.factores,
         }
 
     def _restaurar(self, estado: dict) -> None:
         self.estimador = estado["estimador"]
         self.regularizacion = estado["regularizacion"]
+        # Los modelos antiguos no tenían transformación logarítmica: sus
+        # factores ya están expresados enteramente en las unidades públicas.
+        self.transformar_vol = estado.get("transformar_vol", False)
         self.medias = estado["medias"]
+        self.medias_log_vol = estado.get("medias_log_vol", {})
+        self.desviaciones_log_vol = estado.get("desviaciones_log_vol", {})
         self.factores = estado["factores"]
