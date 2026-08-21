@@ -1,0 +1,14 @@
+{
+  "dim_latente": 32,
+  "unidades_ocultas": 512,
+  "beta": 2.0,
+  "epocas_rampa_beta": 30,
+  "free_bits": 0.05,
+  "epocas": 65,
+  "tam_lote": 128,
+  "tasa_aprendizaje": 0.001,
+  "clip_norma": 5.0,
+  "umbral_unidad_activa": 0.01,
+  "n_diagnostico": 2048,
+  "verboso": 25
+}

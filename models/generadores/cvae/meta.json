@@ -1,0 +1,18 @@
+{
+  "nombre": "cvae",
+  "etiqueta": "VAE condicional",
+  "clase": "CVAE",
+  "dimension": 1201,
+  "n_regimenes": 3,
+  "semilla": 42,
+  "tiene_curva_perdida": true,
+  "final_epoca": 64.0,
+  "final_beta": 2.0,
+  "final_perdida_total": 447.8063049316406,
+  "final_perdida_reconstruccion": 357.88018798828125,
+  "final_perdida_kl": 44.99699020385742,
+  "final_val_perdida_total": 1152.154296875,
+  "final_val_perdida_reconstruccion": 973.8534545898438,
+  "final_val_perdida_kl": 53.56544876098633,
+  "final_unidades_activas": 32.0
+}
