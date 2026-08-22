@@ -9,7 +9,8 @@ como es.
 
 | Documento | Para qué |
 |---|---|
-| [`../README.md`](../README.md) | Visión general, arranque rápido y estado del proyecto |
+| [`GUIA_RAPIDA.md`](GUIA_RAPIDA.md) | Contexto operativo en una página: qué es el proyecto, cómo se arranca, las reglas duras y dónde está cada cosa. **Es lo primero que hay que leer** |
+| [`../README.md`](../README.md) | Visión general, arranque rápido, cifras medidas y estado del proyecto |
 | [`DECISIONES.md`](DECISIONES.md) | Todas las decisiones de diseño, numeradas D1 en adelante, con su justificación. **Léelo antes de tocar nada** |
 | [`enunciado/Taller_B5_T1.pdf`](enunciado/Taller_B5_T1.pdf) | Enunciado oficial: requisitos de la entrega y criterios de evaluación |
 
@@ -67,6 +68,19 @@ que hay que entregar.
 
 ## Cómo leer esto según lo que vayas a hacer
 
+**Abres el repositorio por primera vez.** Lee [`GUIA_RAPIDA.md`](GUIA_RAPIDA.md) —una
+página: el problema, el arranque, las reglas duras y el mapa— y después las
+secciones 5 a 8 de [`../README.md`](../README.md), que dan la estructura, el
+punto de entrada real (`data/processed/`, notebook 03), las cifras ya medidas y
+el estado por fases.
+
+**Vas a escribir o re-ejecutar un cuaderno.** La convención que hay que respetar
+está en `GUIA_RAPIDA.md`: las celdas markdown de Jupyter no interpolan variables, así
+que toda cifra medida vive en un f-string del código —título de figura,
+anotación o `print()`— y el markdown afirma la conclusión sin el número. Las
+figuras salen de `src/viz.py` o de código inline que usa su paleta pública, y
+las nuevas llevan el número del cuaderno como prefijo.
+
 **Vas a tocar los datos.** Lee **D23** de `DECISIONES.md` —los datos se auditan,
 no se limpian— y `src/calidad.py`, que es el módulo que gobierna qué se le hace y
 qué no se le hace al panel: once controles de integridad, cinco **invariantes**
@@ -79,13 +93,23 @@ la misma historia.
 
 **Vas a entrenar un generador.** Lee `DECISIONES.md`, el documento de teoría de
 tu familia, y `src/generadores/base.py`. Las secciones de "diagnóstico de
-convergencia" y "aplicación a nuestro problema" son las que necesitas.
+convergencia" y "aplicación a nuestro problema" son las que necesitas. `jitter`,
+`gaussiano` y `cvae` ya están entrenados y sus cifras de convergencia están en
+`../README.md` § 7.4: sirven de referencia de qué se publica al cerrar un
+generador. Antes del barrido hay que re-ejecutar los notebooks 04, 05 y 06 sobre
+el `ventanas.npz` vigente, por el motivo que explica `../README.md` § 6.
 
 **Vas a montar los datasets o el barrido.** Lee `DECISIONES.md` (en especial D7,
 D13 y D14 para montarlo, y D21 y D24 para saber cómo se leen las cifras que
-salen) y el checklist anti-fuga de `metodologia/riesgos_datos_sinteticos.md`.
+salen) y el checklist anti-fuga de `metodologia/riesgos_datos_sinteticos.md`. El
+coste medido del barrido está en `../README.md` § 7.3 y en
+`results/metricas/coste_barrido.csv`; los segundos por época son tiempo de reloj
+de la máquina que ejecutó el notebook 03 y cambian entre equipos.
 
 **Vas a preparar la presentación.** `DECISIONES.md` tiene la justificación de
 cada elección, y las secciones de aplicación de cada documento de teoría tienen
 los argumentos técnicos para la defensa. `teoria/08_sota_series_financieras.md`
-sitúa el trabajo frente al estado del arte.
+sitúa el trabajo frente al estado del arte. Cada uno de los notebooks 00 a 03
+designa una figura de diapositiva —las cuatro, con el hecho que sostiene cada
+una, en `../README.md` § 7.5—, y el veredicto que hay que saber defender, con su
+banda de incertidumbre, está en § 7.2.

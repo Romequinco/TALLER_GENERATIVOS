@@ -151,7 +151,11 @@ lento, *bull*, recuperación— para capturar la conjunta de acciones y bonos.
 **Por qué 3 y no 2**, en orden de peso. (i) *El objetivo del taller es la clase minoritaria*: con
 $K=2$ el estado de riesgo absorbe correcciones ordinarias y crisis sistémicas, y en la tarea previa
 ocupaba el 25,3 % del tiempo (`docs/context/RESUMEN_DETECCION_REGIMENES.md:102`); una clase de 1 de
-cada 4 no está desbalanceada y no justifica generar datos sintéticos. Con $K=3$ el estado intermedio
+cada 4 no está desbalanceada y no justifica generar datos sintéticos. Ese 25,3 % es un anclaje
+externo —otro panel, otras features—, pero el cuaderno 01 **ajusta ahora el contraste de dos estados
+sobre este panel** y mide **37,4 %** de estado extremo frente al 15,8 % de la versión de tres, con
+**1 de los 4 controles bloqueantes suspendido** (el del peso de la clase de crisis, banda
+[3 %, 20 %]): la medición propia es más adversa a $K=2$ que el anclaje. Con $K=3$ el estado intermedio
 absorbe la corrección y el extremo queda reservado a la crisis genuina (§7.5). (ii) *La limitación
 diagnosticada del detector previo era exactamente esa*: "Solo 2 estados. Colapsa corrección normal,
 crisis sistémica y estanflación en un único estado Crisis"
@@ -381,11 +385,16 @@ crisis en `results/metricas/`, y lo produce `evaluacion.lineas_base`.
 Publicar aquí un solo número es engañoso, porque la cifra depende de dos elecciones que hay que
 declarar por separado, y de una tercera que decide qué comparaciones son legítimas.
 
-**Sobre qué muestra.** El cuaderno 01 mide la persistencia sobre la **muestra completa** —accuracy
-0,821 y recall de crisis 0,821—, y esa muestra está dominada por el tramo de entrenamiento. La cifra
-que hace de barra es la de **test**, que es donde se evalúa el modelo *downstream*: allí la misma
-persistencia da 0,805 de accuracy y 0,790 de F1 macro. Las dos son correctas y no son la misma;
-citar la de muestra completa como si fuera la de test infla la referencia y confunde el margen.
+**Sobre qué muestra.** El cuaderno 01 mide la persistencia sobre la **muestra completa** y publica
+**las dos decodificaciones por separado**: el filtro causal da **0,7775 de accuracy y 0,7850 de
+recall de crisis**, y Viterbi **0,8210 y 0,8208**. El 0,821 que se citaba antes aquí como "la
+persistencia" es la fila de Viterbi, no la oficial. Esa muestra está además dominada por el tramo de
+entrenamiento, de modo que ninguna de las dos cifras es la barra: son un diagnóstico del etiquetado.
+La que hace de barra es la de **test**, que es donde se evalúa el modelo *downstream*: allí la
+persistencia **causal** da **0,772 de accuracy y 0,754 de F1 macro**, y la de Viterbi 0,805 y 0,790.
+Las cuatro son correctas y ninguna es intercambiable con otra; citar la de muestra completa como si
+fuera la de test infla la referencia, y citar la de Viterbi como si fuera la causal la infla otra
+vez.
 
 **Con qué decodificador.** `hmmlearn.predict` es Viterbi y nombra el régimen de hoy **mirando la
 serie entera, futuro incluido** (§3). Para construir la etiqueta eso es legítimo —la etiqueta es el
@@ -598,9 +607,19 @@ intermedio quede vacío en alguna partición, que es un fallo real y hay que mir
 
 **Artefactos del cuaderno** (versionados): `data/processed/regimenes.parquet`, con las columnas
 `regimen`, `regimen_futuro` y `p_regimen_0..2`; `results/metricas/distribucion_regimenes.csv`
-(frecuencia por clase, global y por partición); `results/metricas/transicion_regimenes.csv`
-($A$ canónica, duraciones, estacionaria); y dos figuras,
+(frecuencia por clase en train, validación y test, **sin fila global** y contando sesiones antes del
+embargo, §7.5); `results/metricas/transicion_regimenes.csv` ($A$ canónica más la columna `duracion`
+con la permanencia esperada, **sin** la distribución estacionaria); y dos figuras,
 `results/figures/control_etiquetado.png` y `results/figures/linea_base_persistencia.png`.
+
+Las dos figuras conservan su nombre heredado —el resto de las del cuaderno 01 lleva ya el prefijo
+`01_`— precisamente para que estas referencias no se rompan, y las dos han cambiado de contenido:
+`control_etiquetado.png` enfrenta ahora los dos etiquetados sobre el índice, con el peso de la clase
+de crisis y los controles suspendidos de cada uno en su título, y una banda inferior que separa las
+sesiones que sólo ve una de las dos versiones (**discrepan en el 18,5 % de la muestra**);
+`linea_base_persistencia.png` es la misma figura que `01_persistencia_causal_vs_viterbi.png` —dos
+matrices de confusión, filtro causal y Viterbi, con la segunda tramada por usar el futuro—, que el
+cuaderno escribe dos veces bajo los dos nombres con dos llamadas seguidas a `viz.guardar`.
 
 **Validación externa.** El etiquetado se contrasta contra los tres episodios de
 `regimenes.EPISODIOS_REFERENCIA`, no contra un catálogo de crisis: el `crisis_catalog` que aparece en

@@ -109,13 +109,18 @@ poder discriminante.
 cinco semillas y se conserva el de mayor log-verosimilitud.
 
 **Por qué tres y no dos.** Con dos estados el corte calma/crisis deja una clase
-minoritaria demasiado poblada para que el desbalance sea el problema central. La
-única cifra de la que dispone el proyecto es el **25,3 %** que
+minoritaria demasiado poblada para que el desbalance sea el problema central, y el
+notebook 01 **ya no lo cita, lo mide**: ajusta el contraste de dos estados sobre el
+mismo train y las mismas tres features, y el estado extremo se va al **37,4 %** de
+las sesiones frente al **15,8 %** de la versión de tres. Con esa prevalencia el
+diseño de dos estados **suspende 1 de los 4 controles bloqueantes** —el del peso de
+la clase de crisis, cuya banda de aceptación es [3 %, 20 %]—. El **25,3 %** que
 `metodologia/etiquetado_regimenes.md` §7.5 recoge del HMM de dos estados del TFM
-—otro panel, 2007-2026 y siete features—: **ningún cuaderno de este repositorio
-ajusta un HMM de dos estados**, así que el 25,3 % es un anclaje externo y no una
-medición propia. Con tres, el estado extremo queda en el **15,8 %** medido aquí y
-separa la tensión genuina de la simple transición.
+—otro panel, 2007-2026 y siete features— sigue siendo un anclaje externo que este
+repositorio no reproduce, pero ha dejado de ser la única cifra de la que dispone el
+proyecto, y la medición propia es **más adversa** al diseño de dos estados que el
+anclaje, no menos. Con tres, el estado extremo queda en el 15,8 % y separa la
+tensión genuina de la simple transición.
 
 **Tres features de etiquetado, no cinco.** La versión inicial usaba `ret_sp500`,
 `vol_realizada_z`, `vix_nivel_z`, `drawdown_sp500` y `spread_credito_z`. **Suspende
@@ -146,11 +151,30 @@ extremo deja de significar "mercado en tensión" y pasa a significar "estamos
 después de 2020".
 
 Retirándolas, la crisis queda en el 15,8 %, la cobertura de 2022 sube al 56,5 % y
-los cuatro controles pasan. El ajuste tampoco depende de la inicialización: las
-**cinco semillas del catálogo** (`semillas: [42, 43, 44, 45, 46]`, de las que se
-conserva la de mayor log-verosimilitud) convergen a la misma solución, con
-log-verosimilitud 9.418,7 en train y 163 iteraciones del EM. Un etiquetado que
-cambiara de significado según la semilla no serviría como variable objetivo.
+los cuatro controles pasan.
+
+**El ajuste tampoco depende de la inicialización, y esto también está medido en
+lugar de afirmado.** El notebook 01 recorre las **cinco semillas del catálogo**
+(`semillas: [42, 43, 44, 45, 46]`, de las que se conserva la de mayor
+log-verosimilitud) y publica dos hechos que conviene no confundir:
+
+- **Las verosimilitudes no coinciden.** Con tres features el EM cae en **dos
+  óptimos locales**: 9.418,73 y 9.418,75 (semillas 42 y 45) frente a 9.417,49,
+  9.417,49 y 9.417,57 (semillas 43, 44 y 46). El recorrido entre el mejor y el peor
+  es de **1,26 nats sobre 3.755 observaciones**. Gana la semilla 45, con
+  log-verosimilitud **9.418,747** y **163 iteraciones del EM**.
+- **Las etiquetas sí coinciden, y es lo que decide.** El **acuerdo mínimo entre los
+  etiquetados de dos semillas cualesquiera es del 98,9 %** con tres features, frente
+  al **52,8 %** con las cinco iniciales. La superficie de verosimilitud tiene más de
+  un máximo, pero con tres features todos nombran el mismo régimen casi todos los
+  días.
+
+Lo que un etiquetado necesita para servir como variable objetivo no es que el EM
+converja siempre al mismo punto, sino que el estado extremo signifique lo mismo se
+parta de donde se parta. Con las cinco features no lo cumplía —dos semillas podían
+discrepar en casi la mitad de la muestra—; con tres, sí. Una versión anterior de
+esta decisión daba la convergencia por sentada; la medición la sustituye y la
+refuerza, porque separa lo que converge de lo que no.
 
 Una versión anterior de esta decisión hablaba de "20 semillas probadas" y de un
 segundo óptimo local que con las cinco features daba un 21,2 %. Ni una ni otra
@@ -468,17 +492,22 @@ separa, gana la más barata (D19).
 
 | candidata | bal. acc. | desv. entre semillas | parámetros | s/época |
 |---|---|---|---|---|
-| **`lineal`** | **0,6956** | 0,0081 | **3.603** | **0,41** |
-| `cnn_kernel7` | 0,6917 | 0,0122 | 271.315 | 3,84 |
-| `cnn_base` | 0,6849 | 0,0391 | 167.891 | 2,48 |
-| `cnn_ancha` | 0,6845 | 0,0092 | 533.123 | 6,99 |
-| `cnn_pequena` | 0,6681 | 0,0168 | 69.859 | 0,85 |
-| `cnn_pool_global` | 0,6617 | 0,0203 | 91.091 | 2,88 |
+| **`lineal`** | **0,6956** | 0,0081 | **3.603** | **0,35** |
+| `cnn_kernel7` | 0,6917 | 0,0122 | 271.315 | 4,08 |
+| `cnn_base` | 0,6849 | 0,0391 | 167.891 | 2,52 |
+| `cnn_ancha` | 0,6845 | 0,0092 | 533.123 | 7,60 |
+| `cnn_pequena` | 0,6681 | 0,0168 | 69.859 | 0,94 |
+| `cnn_pool_global` | 0,6617 | 0,0203 | 91.091 | 3,08 |
+
+Las cuatro columnas salen de `results/metricas/busqueda_arquitectura.csv`. **La
+última es tiempo de reloj de la máquina que ejecuta el notebook 03** y cambia entre
+equipos; las otras tres, no.
 
 **`lineal` y `cnn_kernel7` caen dentro de una desviación entre semillas: no están
 separadas por nada**, y las dos siguientes se quedan a 0,0107 y 0,0111. La que
 encabeza es una multinomial sobre la ventana aplanada, con 148 veces menos
-parámetros que `cnn_ancha` y diecisiete veces menos tiempo por época. No es una
+parámetros que `cnn_ancha` y **veintidós veces** menos tiempo por época —0,35 s
+frente a 7,60 s, medido en esta máquina—. No es una
 anomalía: con **45 bloques independientes** en train (ver D21) la convolución no
 tiene de dónde sacar ventaja. Se congela `lineal`.
 
@@ -520,14 +549,23 @@ JSON y valida su huella.
 
 **Consecuencia sobre el coste.** Que la ganadora sea la barata cambia el
 dimensionado del barrido, y las dos magnitudes hay que tomarlas **de la ganadora**,
-no una de ella y otra de la media de las seis: a 0,43 s por época y **51,0 épocas
-efectivas medias** —las de `lineal` en la búsqueda; consumió 60 en su entrenamiento
-real—, los siete generadores del notebook 12 salen por **4,4 h** y los cuatro del
-núcleo mínimo por **2,5 h**. La media de las seis candidatas, 24,2 épocas, está
-dominada por las CNN, que paran entre la 15 y la 22, y usarla con los segundos de
-`lineal` subestimaba el coste a la mitad. Con `cnn_ancha` habrían sido diecisiete
-veces más los segundos por época, y la decisión de recortar generadores habría sido
-inevitable.
+no una de ella y otra de la media de las seis: a **0,35 s por época** y **51,0
+épocas efectivas medias** —las de `lineal` en la búsqueda; consumió 60 en su
+entrenamiento real—, los siete generadores del notebook 12 salen por **3,55 h** y
+los cuatro del núcleo mínimo por **2,04 h**
+(`results/metricas/coste_barrido.csv`). La media de las seis candidatas, 24,2
+épocas, está dominada por las CNN, que paran entre la 15 y la 22, y usarla con los
+segundos de `lineal` **subestimaría el coste por un factor 2,11**, que es el número
+medido y no "a la mitad". Con `cnn_ancha` habrían sido **veintidós** veces más los
+segundos por época, y la decisión de recortar generadores habría sido inevitable.
+
+**Estas tres cifras, y sólo estas tres, son tiempo de reloj.** Los 0,35 s por
+época, las 3,55 h y las 2,04 h se miden en la máquina que ejecuta el notebook 03 y
+cambian entre equipos, igual que la columna `s/época` de la tabla de arriba y todo
+`coste_barrido.csv`; la celda de cierre del cuaderno lo escribe para que nadie las
+lea como una constante del proyecto. El orden de las candidatas, las balanced
+accuracies, las desviaciones entre semillas, los recuentos de parámetros y las
+épocas efectivas no dependen de la máquina.
 
 ---
 
@@ -546,11 +584,15 @@ bata no está prediciendo nada: se está limitando a leer el estado presente, qu
 un problema distinto y mucho más fácil.
 
 **Sobre qué muestra se mide.** El notebook 01 publica la persistencia sobre la
-**muestra completa** —accuracy 0,821 y recall de crisis 0,821—, que está dominada
-por train. Esa cifra es un diagnóstico del etiquetado, **no** la barra del
-experimento. La barra se mide donde se evalúa el modelo, que es **test**. Confundir
-las dos es el error fácil de esta decisión, porque la cifra bonita está en la
-muestra que no toca.
+**muestra completa**, y desde su última ejecución la publica **con las dos
+decodificaciones al lado**, que es lo que esta decisión pedía y no se estaba
+haciendo: la **causal** da accuracy **0,7775** y recall de crisis **0,7850**; la de
+Viterbi, **0,8210** y **0,8208**. El 0,821 que circulaba como "la persistencia" era
+la fila de Viterbi. Ninguna de las dos es la barra del experimento: la muestra
+completa está dominada por train, y esa cifra es un diagnóstico del etiquetado. La
+barra se mide donde se evalúa el modelo, que es **test**. Confundir las muestras
+—o citar Viterbi sin nombrarlo— es el error fácil de esta decisión, porque la cifra
+bonita está a la vez en la muestra que no toca y en el decodificador que no vale.
 
 **Con qué decodificador, que es donde estaba el problema de fondo.**
 `hmmlearn.predict` es **Viterbi**: nombra el régimen de hoy buscando la secuencia
@@ -571,7 +613,10 @@ arquitectura, vale **0,777** sobre test: ese es el número contra el que se lee 
 notebook 03.
 
 Las dos decodificaciones difieren en **321 de 5.670 sesiones (5,66 %)**, y el
-filtro causal marca 924 sesiones de crisis frente a las 901 de Viterbi. El detalle
+filtro causal marca 924 sesiones de crisis frente a las 901 de Viterbi. Sobre la
+muestra completa la diferencia son **4,35 puntos de accuracy**, y es lo que titula
+`results/figures/01_persistencia_causal_vs_viterbi.png`, que enfrenta las dos
+matrices de confusión y trama la de Viterbi por usar el futuro. El detalle
 que hay que saber decir en la defensa es que **el recall de crisis es 0,800 con
 las dos**: toda la ventaja de Viterbi está en la **precisión** (0,715 frente a
 0,638), porque el futuro le dice cuáles de las alarmas eran falsas. Publicar
@@ -600,7 +645,10 @@ recall de crisis de 0,800 con **IC 95 % [0,560 – 1,000]** por bootstrap de blo
 circular de longitud 81 —la huella exacta de una ventana, el mismo 81 del que sale
 el embargo de D7—, frente al **[0,716 – 0,864]** del intervalo binomial de Wilson
 que las trataría como independientes: el honesto es **3,0 veces más ancho**. El
-límite superior satura en 1,000 porque hay una racha entera con recall perfecto.
+límite superior satura en 1,000 porque hay una racha entera con recall perfecto. El
+notebook 03 publica también la banda de la métrica de selección: la balanced
+accuracy de 0,777 viene con **[0,681 – 0,860]**, de ancho 0,178. Las dos bandas son
+las que fijan la barra en la figura `results/figures/03_veredicto.png`.
 
 **Consecuencia operativa, que hay que escribir en el informe y no solo aquí:
 ninguna comparación de recall de crisis entre dos recetas del notebook 12 que
